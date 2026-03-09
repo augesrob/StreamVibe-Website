@@ -65,7 +65,7 @@ const SECTIONS = [
         summary: 'Create license keys', auth: 'api-key' as const, permissions: ['keys:create'],
         description: 'Generate one or more license keys. Keys are created with inactive status until redeemed.',
         body: [
-          { field: 'quantity', type: 'number', required: false, description: 'Number of keys to generate (1–100, default: 1)' },
+          { field: 'quantity', type: 'number', required: false, description: 'Number of keys to generate (1â€“100, default: 1)' },
           { field: 'plan_id', type: 'string (uuid)', required: false, description: 'Assign to a specific plan' },
           { field: 'expires_at', type: 'string (ISO date)', required: false, description: 'Key expiry date' },
           { field: 'notes', type: 'string', required: false, description: 'Admin notes for this key' },
@@ -150,18 +150,18 @@ const SECTIONS = [
       {
         id: 'discord-config-get', method: 'GET' as Method, path: '/api/v1/discord/config',
         summary: 'Get Discord config', auth: 'api-key' as const, permissions: ['discord:config'],
-        description: 'Get the tier→role mapping for a Discord guild.',
+        description: 'Get the tierâ†’role mapping for a Discord guild.',
         query: [{ field: 'guild_id', type: 'string', required: false, description: 'Filter to a specific guild' }],
         response: { id: 'uuid', guild_id: '987654321', tier_role_map: { free: 'roleId1', basic: 'roleId2', pro: 'roleId3', legend: 'roleId4' } },
       },
       {
         id: 'discord-config-set', method: 'PUT' as Method, path: '/api/v1/discord/config',
         summary: 'Set Discord config', auth: 'api-key' as const, permissions: ['discord:config'],
-        description: 'Configure bot token and tier→role mappings for a Discord guild.',
+        description: 'Configure bot token and tierâ†’role mappings for a Discord guild.',
         body: [
           { field: 'guild_id', type: 'string', required: true, description: 'Discord server (guild) ID' },
           { field: 'bot_token', type: 'string', required: false, description: 'Discord bot token with Manage Roles permission' },
-          { field: 'tier_role_map', type: 'object', required: false, description: 'Map of tier name → Discord role ID: { free, basic, pro, legend }' },
+          { field: 'tier_role_map', type: 'object', required: false, description: 'Map of tier name â†’ Discord role ID: { free, basic, pro, legend }' },
         ],
         response: { success: true, config: { guild_id: '987654321', tier_role_map: { pro: 'roleId3' } } },
       },
@@ -186,7 +186,7 @@ const SECTIONS = [
           { field: 'expires_at', type: 'string (ISO date)', required: false, description: 'Optional expiry date' },
           { field: 'owner_user_id', type: 'string (uuid)', required: false, description: 'Associate with a StreamVibe user' },
         ],
-        response: { success: true, message: 'Store this key securely — it will not be shown again.', api_key: 'sv_abc123def456...', key_prefix: 'sv_abc123', permissions: ['keys:read'] },
+        response: { success: true, message: 'Store this key securely â€” it will not be shown again.', api_key: 'sv_abc123def456...', key_prefix: 'sv_abc123', permissions: ['keys:read'] },
       },
     ]
   },
@@ -210,7 +210,7 @@ function EndpointCard({ ep }: { ep: Endpoint }) {
         <span className={cn('text-xs font-extrabold px-2 py-0.5 rounded border font-mono min-w-[52px] text-center', METHOD_COLORS[ep.method])}>{ep.method}</span>
         <code className="text-slate-200 text-sm flex-1">{ep.path}</code>
         {ep.auth === 'api-key' && (
-          <span className="hidden sm:inline text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-800">🔑 API Key</span>
+          <span className="hidden sm:inline text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-800">ðŸ”‘ API Key</span>
         )}
         {ep.auth === 'none' && (
           <span className="hidden sm:inline text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-300 border border-green-800">Public</span>
@@ -295,7 +295,7 @@ function ParamTable({ params }: { params: { field: string; type: string; require
             <tr key={p.field} className="hover:bg-slate-900/30">
               <td className="px-3 py-2 font-mono text-cyan-300">{p.field}</td>
               <td className="px-3 py-2 text-purple-300">{p.type}</td>
-              <td className="px-3 py-2">{p.required ? <span className="text-red-400 font-bold">*</span> : <span className="text-slate-600">—</span>}</td>
+              <td className="px-3 py-2">{p.required ? <span className="text-red-400 font-bold">*</span> : <span className="text-slate-600">â€”</span>}</td>
               <td className="px-3 py-2 text-slate-300">{p.description}</td>
             </tr>
           ))}
@@ -405,16 +405,16 @@ export default function ApiDocsPage() {
         <div id="discord-setup" className="mb-16 p-6 bg-[#0d0d1a] rounded-xl border border-indigo-900/50">
           <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2"><Webhook className="w-5 h-5 text-indigo-400" />Discord Bot Setup Guide</h3>
           <ol className="space-y-3 text-sm text-slate-400">
-            <li><span className="text-white font-semibold">1. Create a Discord Bot</span> — Go to <a href="https://discord.com/developers/applications" target="_blank" className="text-cyan-400 hover:underline inline-flex items-center gap-1">discord.com/developers <ExternalLink className="w-3 h-3" /></a>, create an Application, add a Bot, and enable <code className="text-purple-300">SERVER MEMBERS INTENT</code>.</li>
-            <li><span className="text-white font-semibold">2. Bot Permissions</span> — Give the bot <code className="text-purple-300">Manage Roles</code> permission. The bot role must be higher than the tier roles it manages.</li>
-            <li><span className="text-white font-semibold">3. Invite Bot</span> — Use the OAuth2 URL generator with <code className="text-purple-300">bot</code> scope and <code className="text-purple-300">Manage Roles</code> permission.</li>
-            <li><span className="text-white font-semibold">4. Create Tier Roles</span> — Create roles in your Discord server for each tier: Free, Basic, Pro, Legend. Copy the role IDs (enable Developer Mode in Discord settings → right-click role → Copy ID).</li>
-            <li><span className="text-white font-semibold">5. Configure via API</span> — Call <code className="text-cyan-300">PUT /api/v1/discord/config</code> with your guild ID, bot token, and tier→role ID mapping.</li>
-            <li><span className="text-white font-semibold">6. Sync Users</span> — Call <code className="text-cyan-300">POST /api/v1/discord/sync</code> with the user's Discord ID, guild ID, and StreamVibe user ID whenever a purchase is made or plan changes.</li>
+            <li><span className="text-white font-semibold">1. Create a Discord Bot</span> â€” Go to <a href="https://discord.com/developers/applications" target="_blank" className="text-cyan-400 hover:underline inline-flex items-center gap-1">discord.com/developers <ExternalLink className="w-3 h-3" /></a>, create an Application, add a Bot, and enable <code className="text-purple-300">SERVER MEMBERS INTENT</code>.</li>
+            <li><span className="text-white font-semibold">2. Bot Permissions</span> â€” Give the bot <code className="text-purple-300">Manage Roles</code> permission. The bot role must be higher than the tier roles it manages.</li>
+            <li><span className="text-white font-semibold">3. Invite Bot</span> â€” Use the OAuth2 URL generator with <code className="text-purple-300">bot</code> scope and <code className="text-purple-300">Manage Roles</code> permission.</li>
+            <li><span className="text-white font-semibold">4. Create Tier Roles</span> â€” Create roles in your Discord server for each tier: Free, Basic, Pro, Legend. Copy the role IDs (enable Developer Mode in Discord settings â†’ right-click role â†’ Copy ID).</li>
+            <li><span className="text-white font-semibold">5. Configure via API</span> â€” Call <code className="text-cyan-300">PUT /api/v1/discord/config</code> with your guild ID, bot token, and tierâ†’role ID mapping.</li>
+            <li><span className="text-white font-semibold">6. Sync Users</span> â€” Call <code className="text-cyan-300">POST /api/v1/discord/sync</code> with the user&apos;s Discord ID, guild ID, and StreamVibe user ID whenever a purchase is made or plan changes.</li>
           </ol>
         </div>
 
-        <p className="text-center text-slate-600 text-sm">StreamVibe API v1.0 — <a href="/" className="text-cyan-400 hover:underline">Back to StreamVibe</a></p>
+        <p className="text-center text-slate-600 text-sm">StreamVibe API v1.0 â€” <a href="/" className="text-cyan-400 hover:underline">Back to StreamVibe</a></p>
       </main>
     </div>
   )
