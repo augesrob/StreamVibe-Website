@@ -114,7 +114,7 @@ export default function DashboardPage() {
 
   const uploadAvatar = async (file: File) => {
     if (!user) return
-    if (file.size > 2 * 1024 * 1024) { toast({ variant: 'destructive', title: 'File too large', description: 'Max 2MB.' }); return }
+    if (file.size > 5 * 1024 * 1024) { toast({ variant: 'destructive', title: 'File too large', description: 'Max 5MB.' }); return }
     setUploadingAvatar(true)
     const ext = file.name.split('.').pop()
     const path = `avatars/${user.id}.${ext}`
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                   <div className="text-center py-12">
                     <CreditCard className="w-12 h-12 mx-auto mb-4 text-slate-700" />
                     <p className="text-slate-500">No transactions found.</p>
-                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans â†’</a>
+                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢</a>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -378,7 +378,7 @@ export default function DashboardPage() {
                     </Avatar>
                     <div>
                       <p className="text-sm text-slate-300 mb-1">Upload a new photo</p>
-                      <p className="text-xs text-slate-500">JPG, PNG or WebP. Max 2MB.</p>
+                      <p className="text-xs text-slate-500">JPG, PNG, WebP or GIF. Max 5MB.</p>
                     </div>
                   </div>
                   <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadAvatar(f) }} />
