@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
-import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift, Monitor, RotateCcw, AlertTriangle, CreditCard, Camera, Lock } from 'lucide-react'
+import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift, Monitor, RotateCcw, AlertTriangle, CreditCard, Camera, Lock, Eye, EyeOff, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface UserPlan {
@@ -48,6 +48,8 @@ export default function DashboardPage() {
   const [userKeys, setUserKeys] = useState<UserKey[]>([])
   const [loadingKeys, setLoadingKeys] = useState(false)
   const [resettingHwid, setResettingHwid] = useState<string | null>(null)
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [billingHistory, setBillingHistory] = useState<PayPalOrder[]>([])
   const [loadingBilling, setLoadingBilling] = useState(false)
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
@@ -302,8 +304,28 @@ export default function DashboardPage() {
                       return (
                         <div key={k.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 p-4">
                           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-                            <span className="font-mono text-sm text-white tracking-wider">{k.key_code}</span>
-                            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', k.status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-400')}>{k.status}</span>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="font-mono text-sm text-white tracking-wider truncate">
+                                {revealedKeys.has(k.id) ? k.key_code : k.key_code.replace(/[A-Z0-9]/g, '•')}
+                              </span>
+                              <button
+                                onClick={() => setRevealedKeys(prev => { const s = new Set(prev); s.has(k.id) ? s.delete(k.id) : s.add(k.id); return s })}
+                                className="shrink-0 text-slate-400 hover:text-cyan-400 transition-colors p-1 rounded"
+                                title={revealedKeys.has(k.id) ? 'Hide key' : 'Reveal key'}
+                              >
+                                {revealedKeys.has(k.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                              {revealedKeys.has(k.id) && (
+                                <button
+                                  onClick={async () => { await navigator.clipboard.writeText(k.key_code); setCopiedKey(k.id); setTimeout(() => setCopiedKey(null), 2000) }}
+                                  className="shrink-0 text-slate-400 hover:text-green-400 transition-colors p-1 rounded"
+                                  title="Copy key"
+                                >
+                                  {copiedKey === k.id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                                </button>
+                              )}
+                            </div>
+                            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium shrink-0', k.status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-400')}>{k.status}</span>
                           </div>
                           <div className="mb-3">
                             <div className="flex justify-between text-xs text-slate-400 mb-1">
@@ -345,7 +367,7 @@ export default function DashboardPage() {
                   <div className="text-center py-12">
                     <CreditCard className="w-12 h-12 mx-auto mb-4 text-slate-700" />
                     <p className="text-slate-500">No transactions found.</p>
-                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢</a>
+                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢</a>
                   </div>
                 ) : (
                   <div className="space-y-2">
