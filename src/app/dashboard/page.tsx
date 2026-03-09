@@ -88,7 +88,7 @@ export default function DashboardPage() {
     if (!user) return
     setLoadingBilling(true)
     const { data } = await supabase.from('paypal_orders').select('id, order_id, amount, status, payer_email, created_at, plans(name)').eq('user_id', user.id).order('created_at', { ascending: false })
-    setBillingHistory(data || [])
+    setBillingHistory((data as any[]) || [])
     setLoadingBilling(false)
   }
 
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                   <div className="text-center py-12">
                     <CreditCard className="w-12 h-12 mx-auto mb-4 text-slate-700" />
                     <p className="text-slate-500">No transactions found.</p>
-                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans →</a>
+                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans â†’</a>
                   </div>
                 ) : (
                   <div className="space-y-2">
