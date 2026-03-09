@@ -10,13 +10,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
 import { Shield, Users, Key, Loader2, RefreshCw, Copy, CheckCircle, XCircle, Clock,
-  CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, Mail, ChevronDown, ChevronUp, X, BookOpen } from 'lucide-react'
+  CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, Mail, ChevronDown, ChevronUp,
+  X, BookOpen, Download, Package, Plus, Save, DollarSign, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-interface Profile {
-  id: string; username: string | null; avatar_url: string | null
-  discord_user_id: string | null; is_banned: boolean; created_at: string
-}
+interface Profile { id: string; username: string | null; avatar_url: string | null; discord_user_id: string | null; is_banned: boolean; created_at: string }
 interface UserDetail extends Profile {
   plans: { id: string; plan_id: string; expires_at: string | null; plans: { name: string; tier: string } | null }[]
   keys: LicenseKey[]
@@ -28,12 +26,9 @@ interface LicenseKey {
   hwid: string | null; hwid_device_count: number; hwid_locked: boolean; max_devices: number
   ip_address: string | null; created_at: string; redeemed_at: string | null; notes: string | null
 }
-interface Plan { id: string; name: string; tier: string; billing_interval: string; price: number }
-interface PayPalOrder {
-  id: string; order_id: string; plan_id: string | null; amount: number; status: string
-  payer_email: string | null; payer_name: string | null; created_at: string; captured_at: string | null
-  plans?: { name: string } | null
-}
+interface Plan { id: string; name: string; tier: string; billing_interval: string; price: number; duration_days: number | null; features: string[]; custom_note: string | null; sort_order: number; is_active: boolean }
+interface DownloadItem { id: string; name: string; description: string; version: string; tier: string; file_url: string | null; github_repo: string | null; github_token: string | null; is_github_private: boolean; last_updated: string | null; version_history: string | null; sort_order: number; is_active: boolean }
+interface PayPalOrder { id: string; order_id: string; plan_id: string | null; amount: number; status: string; payer_email: string | null; payer_name: string | null; created_at: string; captured_at: string | null; user_id: string | null; plans?: { name: string } | null }
 interface Stats { users: number; activeKeys: number; totalKeys: number; activePlans: number; revenue: number }
 
 const KEY_STATUS_META = {
@@ -46,16 +41,25 @@ const TIER_COLORS: Record<string, string> = {
   free: 'text-slate-400 bg-slate-800', basic: 'text-blue-300 bg-blue-900/40',
   pro: 'text-purple-300 bg-purple-900/40', legend: 'text-yellow-300 bg-yellow-900/40',
 }
+const TIERS = ['free', 'basic', 'pro', 'legend']
+const INTERVALS = ['monthly', 'quarterly', 'yearly', 'lifetime', 'one-time']
 
 function generateKeyCode() {
   return 'SV-' + Array.from({ length: 4 }, () => Math.random().toString(36).toUpperCase().substring(2, 6)).join('-')
 }
 
+async function adminFetch(url: string, method: string, body?: any, token?: string) {
+  return fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}
+
 // ── User Edit Modal ──────────────────────────────────────────────────────────
-function UserEditModal({ user, plans, onClose, onSaved, toast }: {
-  user: UserDetail; plans: Plan[]
-  onClose: () => void; onSaved: () => void
-  toast: (t: any) => void
+function UserEditModal({ user, plans, token, onClose, onSaved, toast }: {
+  user: UserDetail; plans: Plan[]; token: string
+  onClose: () => void; onSaved: () => void; toast: (t: any) => void
 }) {
   const [username, setUsername] = useState(user.username || '')
   const [discordId, setDiscordId] = useState(user.discord_user_id || '')
@@ -78,7 +82,7 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
 
   const sendPasswordReset = async () => {
     setResettingPw(true)
-    const res = await fetch('/api/admin/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: user.id }) })
+    const res = await adminFetch('/api/admin/reset-password', 'POST', { user_id: user.id }, token)
     const d = await res.json()
     if (d.success) toast({ title: 'Password reset email sent' })
     else toast({ variant: 'destructive', title: 'Error', description: d.error })
@@ -88,7 +92,7 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
   const grantPlan = async () => {
     if (!grantPlanId) return
     setGranting(true)
-    const res = await fetch('/api/admin/user-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: user.id, plan_id: grantPlanId }) })
+    const res = await adminFetch('/api/admin/user-plan', 'POST', { user_id: user.id, plan_id: grantPlanId }, token)
     const d = await res.json()
     if (d.success) { toast({ title: 'Plan granted' }); onSaved(); setGrantPlanId('') }
     else toast({ variant: 'destructive', title: 'Error', description: d.error })
@@ -97,25 +101,27 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
 
   const revokePlan = async (planRowId: string) => {
     setRevokingPlanId(planRowId)
-    const { error } = await supabase.from('user_plans').delete().eq('id', planRowId)
-    if (!error) { toast({ title: 'Plan revoked' }); onSaved() }
-    else toast({ variant: 'destructive', title: 'Error', description: error.message })
+    const res = await adminFetch('/api/admin/user-plan', 'DELETE', { plan_row_id: planRowId }, token)
+    const d = await res.json()
+    if (d.success) { toast({ title: 'Plan revoked' }); onSaved() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error || 'Unknown error' })
     setRevokingPlanId(null)
   }
 
   const removeKeyFromUser = async (keyId: string) => {
     setRemovingKeyId(keyId)
     const { error } = await supabase.from('license_keys').update({ user_id: null, status: 'inactive', hwid: null, hwid_device_count: 0, hwid_locked: false }).eq('id', keyId)
-    if (!error) { toast({ title: 'Key unlinked from user' }); onSaved() }
+    if (!error) { toast({ title: 'Key unlinked' }); onSaved() }
     else toast({ variant: 'destructive', title: 'Error', description: error.message })
     setRemovingKeyId(null)
   }
 
   const resetHwid = async (keyId: string) => {
     setResettingHwidId(keyId)
-    const res = await fetch('/api/v1/keys/reset-hwid', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key_code: user.keys.find(k => k.id === keyId)?.key_code }) })
+    const kc = user.keys.find(k => k.id === keyId)?.key_code
+    const res = await adminFetch('/api/v1/keys/reset-hwid', 'POST', { key_code: kc }, token)
     const d = await res.json()
-    if (d.success) { toast({ title: 'HWID reset — all devices cleared' }); onSaved() }
+    if (d.success) { toast({ title: 'HWID reset' }); onSaved() }
     else toast({ variant: 'destructive', title: 'Error', description: d.error })
     setResettingHwidId(null)
   }
@@ -124,25 +130,15 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 overflow-y-auto pt-8 pb-8 px-4">
       <div className="bg-[#0d0d1a] border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
-          <div>
-            <h2 className="text-lg font-bold text-white">Edit User</h2>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">{user.id}</p>
-          </div>
+          <div><h2 className="text-lg font-bold text-white">Edit User</h2><p className="text-xs text-slate-500 font-mono mt-0.5">{user.id}</p></div>
           <button onClick={onClose} className="text-slate-500 hover:text-white p-1 rounded"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-6">
-          {/* Profile */}
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Profile</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">Username</label>
-                <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-[#060610] border-slate-700 text-white" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">Discord User ID</label>
-                <Input value={discordId} onChange={e => setDiscordId(e.target.value)} placeholder="123456789012345678" className="bg-[#060610] border-slate-700 text-white" />
-              </div>
+              <div><label className="text-xs text-slate-500 mb-1 block">Username</label><Input value={username} onChange={e => setUsername(e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+              <div><label className="text-xs text-slate-500 mb-1 block">Discord User ID</label><Input value={discordId} onChange={e => setDiscordId(e.target.value)} placeholder="123456789012345678" className="bg-[#060610] border-slate-700 text-white" /></div>
             </div>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -152,16 +148,10 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
               {isBanned && <Badge className="bg-red-900/50 text-red-400 border-red-800">User is banned</Badge>}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button onClick={save} disabled={saving} className="bg-cyan-700 hover:bg-cyan-600 text-white">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Save Changes
-              </Button>
-              <Button onClick={sendPasswordReset} disabled={resettingPw} variant="outline" className="border-slate-700 text-slate-300 hover:text-white">
-                {resettingPw ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}Send Password Reset
-              </Button>
+              <Button onClick={save} disabled={saving} className="bg-cyan-700 hover:bg-cyan-600 text-white">{saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Save Changes</Button>
+              <Button onClick={sendPasswordReset} disabled={resettingPw} variant="outline" className="border-slate-700 text-slate-300 hover:text-white">{resettingPw ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}Send Password Reset</Button>
             </div>
           </section>
-
-          {/* Active Plans */}
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Active Plans</h3>
             {user.plans.length === 0 ? <p className="text-xs text-slate-600">No active plans.</p> : (
@@ -173,8 +163,7 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
                       <span className="text-sm text-white">{(up.plans as any)?.name}</span>
                       {up.expires_at && <span className="text-xs text-slate-500 ml-2">Expires {new Date(up.expires_at).toLocaleDateString()}</span>}
                     </div>
-                    <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-400 h-7 px-2"
-                      disabled={revokingPlanId === up.id} onClick={() => revokePlan(up.id)}>
+                    <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-400 h-7 px-2" disabled={revokingPlanId === up.id} onClick={() => revokePlan(up.id)}>
                       {revokingPlanId === up.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                     </Button>
                   </div>
@@ -186,16 +175,12 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
                 <option value="">Grant a plan...</option>
                 {plans.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
               </select>
-              <Button onClick={grantPlan} disabled={granting || !grantPlanId} className="bg-green-800 hover:bg-green-700 text-white whitespace-nowrap">
-                {granting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Grant Plan'}
-              </Button>
+              <Button onClick={grantPlan} disabled={granting || !grantPlanId} className="bg-green-800 hover:bg-green-700 text-white whitespace-nowrap">{granting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Grant Plan'}</Button>
             </div>
           </section>
-
-          {/* License Keys */}
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">License Keys</h3>
-            {user.keys.length === 0 ? <p className="text-xs text-slate-600">No keys linked to this user.</p> : (
+            {user.keys.length === 0 ? <p className="text-xs text-slate-600">No keys linked.</p> : (
               <div className="space-y-2">
                 {user.keys.map(k => {
                   const sm = KEY_STATUS_META[k.status]
@@ -210,14 +195,8 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
                         {k.expires_at && <span>Exp: {new Date(k.expires_at).toLocaleDateString()}</span>}
                       </div>
                       <div className="flex gap-2 mt-2 flex-wrap">
-                        <Button size="sm" variant="outline" className="h-7 text-xs border-slate-700 text-slate-400 hover:text-white"
-                          disabled={resettingHwidId === k.id} onClick={() => resetHwid(k.id)}>
-                          {resettingHwidId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 text-xs border-red-900 text-red-400 hover:bg-red-950"
-                          disabled={removingKeyId === k.id} onClick={() => removeKeyFromUser(k.id)}>
-                          {removingKeyId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}Remove from Account
-                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs border-slate-700 text-slate-400 hover:text-white" disabled={resettingHwidId === k.id} onClick={() => resetHwid(k.id)}>{resettingHwidId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID</Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs border-red-900 text-red-400 hover:bg-red-950" disabled={removingKeyId === k.id} onClick={() => removeKeyFromUser(k.id)}>{removingKeyId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}Remove</Button>
                       </div>
                     </div>
                   )
@@ -225,27 +204,164 @@ function UserEditModal({ user, plans, onClose, onSaved, toast }: {
               </div>
             )}
           </section>
-
-          {/* PayPal History */}
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">PayPal History</h3>
-            {user.paypal.length === 0 ? <p className="text-xs text-slate-600">No PayPal orders found.</p> : (
+            {user.paypal.length === 0 ? <p className="text-xs text-slate-600">No PayPal orders.</p> : (
               <div className="space-y-2">
                 {user.paypal.map(o => (
                   <div key={o.id} className="flex items-center justify-between bg-[#060610] rounded-lg px-3 py-2 border border-slate-800 text-xs">
-                    <div>
-                      <span className="text-white font-medium">{(o.plans as any)?.name || 'Unknown Plan'}</span>
-                      <span className="text-slate-500 ml-2">{o.payer_email}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-green-400 font-bold">${o.amount?.toFixed(2)}</span>
-                      <span className="text-slate-600 ml-2">{new Date(o.created_at).toLocaleDateString()}</span>
-                    </div>
+                    <div><span className="text-white font-medium">{(o.plans as any)?.name || 'Unknown Plan'}</span><span className="text-slate-500 ml-2">{o.payer_email}</span></div>
+                    <div className="text-right"><span className="text-green-400 font-bold">${o.amount?.toFixed(2)}</span><span className="text-slate-600 ml-2">{new Date(o.created_at).toLocaleDateString()}</span></div>
                   </div>
                 ))}
               </div>
             )}
           </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Plan Edit Modal ──────────────────────────────────────────────────────────
+function PlanEditModal({ plan, token, onClose, onSaved, toast }: { plan: Plan | null; token: string; onClose: () => void; onSaved: () => void; toast: (t: any) => void }) {
+  const isNew = !plan?.id
+  const [form, setForm] = useState<Partial<Plan>>({
+    name: plan?.name || '', tier: plan?.tier || 'basic', billing_interval: plan?.billing_interval || 'monthly',
+    price: plan?.price ?? 0, duration_days: plan?.duration_days ?? null, features: plan?.features || [],
+    custom_note: plan?.custom_note || '', sort_order: plan?.sort_order ?? 0, is_active: plan?.is_active ?? true,
+  })
+  const [featureInput, setFeatureInput] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const setField = (k: keyof Plan, v: any) => setForm(f => ({ ...f, [k]: v }))
+  const addFeature = () => { if (featureInput.trim()) { setField('features', [...(form.features || []), featureInput.trim()]); setFeatureInput('') } }
+  const removeFeature = (i: number) => setField('features', (form.features || []).filter((_, idx) => idx !== i))
+
+  const save = async () => {
+    setSaving(true)
+    const method = isNew ? 'POST' : 'PATCH'
+    const body = isNew ? form : { id: plan!.id, ...form }
+    const res = await adminFetch('/api/admin/plans', method, body, token)
+    const d = await res.json()
+    if (d.success || d.plan) { toast({ title: isNew ? 'Plan created' : 'Plan saved' }); onSaved() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 overflow-y-auto pt-8 pb-8 px-4">
+      <div className="bg-[#0d0d1a] border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+          <h2 className="text-lg font-bold text-white">{isNew ? 'New Plan' : 'Edit Plan'}</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><label className="text-xs text-slate-500 mb-1 block">Plan Name</label><Input value={form.name} onChange={e => setField('name', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Tier</label>
+              <select value={form.tier} onChange={e => setField('tier', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
+                {TIERS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Billing Interval</label>
+              <select value={form.billing_interval} onChange={e => setField('billing_interval', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
+                {INTERVALS.map(i => <option key={i} value={i}>{i.charAt(0).toUpperCase() + i.slice(1)}</option>)}
+              </select>
+            </div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Price ($)</label><Input type="number" step="0.01" value={form.price} onChange={e => setField('price', parseFloat(e.target.value) || 0)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Duration (days, blank = lifetime)</label><Input type="number" value={form.duration_days ?? ''} onChange={e => setField('duration_days', e.target.value ? parseInt(e.target.value) : null)} placeholder="∞" className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Sort Order</label><Input type="number" value={form.sort_order} onChange={e => setField('sort_order', parseInt(e.target.value) || 0)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div className="flex items-center gap-2 mt-4"><input type="checkbox" checked={form.is_active} onChange={e => setField('is_active', e.target.checked)} className="w-4 h-4 accent-cyan-500" /><span className="text-sm text-slate-300">Active</span></div>
+          </div>
+          <div><label className="text-xs text-slate-500 mb-1 block">Custom Note</label><Input value={form.custom_note || ''} onChange={e => setField('custom_note', e.target.value)} placeholder="e.g. Most Popular" className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div>
+            <label className="text-xs text-slate-500 mb-2 block">Features</label>
+            <div className="space-y-1 mb-2">
+              {(form.features || []).map((f, i) => (
+                <div key={i} className="flex items-center justify-between bg-[#060610] rounded px-3 py-1.5 border border-slate-800 text-sm">
+                  <span className="text-slate-300">{f}</span>
+                  <button onClick={() => removeFeature(i)} className="text-red-500 hover:text-red-400 ml-2"><X className="w-3 h-3" /></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input value={featureInput} onChange={e => setFeatureInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addFeature()} placeholder="Add feature..." className="bg-[#060610] border-slate-700 text-white" />
+              <Button onClick={addFeature} size="sm" variant="outline" className="border-slate-700 text-slate-400 hover:text-white"><Plus className="w-4 h-4" /></Button>
+            </div>
+          </div>
+          <Button onClick={save} disabled={saving} className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}{isNew ? 'Create Plan' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Download Edit Modal ──────────────────────────────────────────────────────
+function DownloadEditModal({ item, token, onClose, onSaved, toast }: { item: DownloadItem | null; token: string; onClose: () => void; onSaved: () => void; toast: (t: any) => void }) {
+  const isNew = !item?.id
+  const [form, setForm] = useState({
+    name: item?.name || '', description: item?.description || '', version: item?.version || 'v1.0.0',
+    tier: item?.tier || 'basic', file_url: item?.file_url || '', github_repo: item?.github_repo || '',
+    github_token: item?.github_token || '', is_github_private: item?.is_github_private ?? false,
+    last_updated: item?.last_updated || '', version_history: item?.version_history || '',
+    sort_order: item?.sort_order ?? 0, is_active: item?.is_active ?? true,
+  })
+  const [saving, setSaving] = useState(false)
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
+
+  const save = async () => {
+    setSaving(true)
+    const method = isNew ? 'POST' : 'PATCH'
+    const body = isNew ? form : { id: item!.id, ...form }
+    const clean = { ...body, file_url: body.file_url || null, github_repo: body.github_repo || null, github_token: body.github_token || null, last_updated: body.last_updated || null, version_history: body.version_history || null }
+    const res = await adminFetch('/api/admin/downloads', method, clean, token)
+    const d = await res.json()
+    if (d.success || d.download) { toast({ title: isNew ? 'Download created' : 'Download saved' }); onSaved() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 overflow-y-auto pt-8 pb-8 px-4">
+      <div className="bg-[#0d0d1a] border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+          <h2 className="text-lg font-bold text-white">{isNew ? 'New Download' : 'Edit Download'}</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <div><label className="text-xs text-slate-500 mb-1 block">Name</label><Input value={form.name} onChange={e => set('name', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div><label className="text-xs text-slate-500 mb-1 block">Description</label><Input value={form.description} onChange={e => set('description', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-slate-500 mb-1 block">Version</label><Input value={form.version} onChange={e => set('version', e.target.value)} placeholder="v1.0.0" className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Required Tier</label>
+              <select value={form.tier} onChange={e => set('tier', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
+                {TIERS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </div>
+          </div>
+          <div><label className="text-xs text-slate-500 mb-1 block">Direct Download URL (optional)</label><Input value={form.file_url} onChange={e => set('file_url', e.target.value)} placeholder="https://example.com/file.exe" className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div><label className="text-xs text-slate-500 mb-1 block">GitHub Release URL (optional)</label><Input value={form.github_repo} onChange={e => set('github_repo', e.target.value)} placeholder="https://github.com/user/repo/releases/..." className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" checked={form.is_github_private} onChange={e => set('is_github_private', e.target.checked)} className="w-4 h-4 accent-cyan-500" />
+            <span className="text-sm text-slate-300">Private GitHub repo (requires token)</span>
+          </div>
+          {form.is_github_private && (
+            <div><label className="text-xs text-slate-500 mb-1 block">GitHub Access Token</label><Input value={form.github_token} onChange={e => set('github_token', e.target.value)} placeholder="ghp_..." type="password" className="bg-[#060610] border-slate-700 text-white" /></div>
+          )}
+          <div><label className="text-xs text-slate-500 mb-1 block">Last Updated (date)</label><Input type="date" value={form.last_updated} onChange={e => set('last_updated', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+          <div><label className="text-xs text-slate-500 mb-1 block">Version History / Changelog</label>
+            <textarea value={form.version_history} onChange={e => set('version_history', e.target.value)} rows={4} placeholder="v1.1.0 - Fixed crash on startup&#10;v1.0.0 - Initial release" className="w-full px-3 py-2 rounded-md border border-slate-700 bg-[#060610] text-white text-sm resize-none focus:outline-none focus:ring-1 focus:ring-cyan-500" />
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2"><input type="checkbox" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} className="w-4 h-4 accent-cyan-500" /><span className="text-sm text-slate-300">Active</span></div>
+            <div><label className="text-xs text-slate-500 mr-2">Sort Order</label><Input type="number" value={form.sort_order} onChange={e => set('sort_order', parseInt(e.target.value) || 0)} className="bg-[#060610] border-slate-700 text-white w-20 inline-block" /></div>
+          </div>
+          <Button onClick={save} disabled={saving} className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}{isNew ? 'Create' : 'Save Changes'}
+          </Button>
         </div>
       </div>
     </div>
@@ -258,10 +374,12 @@ export default function AdminPage() {
   const { toast } = useToast()
   const router = useRouter()
 
+  const [authToken, setAuthToken] = useState<string>('')
   const [stats, setStats] = useState<Stats>({ users: 0, activeKeys: 0, totalKeys: 0, activePlans: 0, revenue: 0 })
   const [users, setUsers] = useState<Profile[]>([])
   const [keys, setKeys] = useState<LicenseKey[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
+  const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [paypalOrders, setPaypalOrders] = useState<PayPalOrder[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [loadingKeys, setLoadingKeys] = useState(false)
@@ -271,14 +389,29 @@ export default function AdminPage() {
   const [genPlanId, setGenPlanId] = useState('')
   const [keySearch, setKeySearch] = useState('')
   const [userSearch, setUserSearch] = useState('')
+  const [paypalSearch, setPaypalSearch] = useState('')
+  const [paypalDateFrom, setPaypalDateFrom] = useState('')
+  const [paypalDateTo, setPaypalDateTo] = useState('')
   const [editingUser, setEditingUser] = useState<UserDetail | null>(null)
   const [loadingUserDetail, setLoadingUserDetail] = useState<string | null>(null)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [resettingHwid, setResettingHwid] = useState<string | null>(null)
+  const [editingPlan, setEditingPlan] = useState<Plan | null | 'new'>()
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [editingDownload, setEditingDownload] = useState<DownloadItem | null | 'new'>()
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
+  const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
+  const [deletingDlId, setDeletingDlId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!loading && (!user || !isAdmin)) router.push('/dashboard')
   }, [loading, user, isAdmin, router])
+
+  useEffect(() => {
+    if (isAdmin) {
+      supabase.auth.getSession().then(({ data: { session } }) => { if (session?.access_token) setAuthToken(session.access_token) })
+    }
+  }, [isAdmin])
 
   const loadStats = useCallback(async () => {
     const [{ count: userCount }, { count: keyCount }, { count: activeKeyCount }, { count: planCount }, { data: revenueData }] = await Promise.all([
@@ -295,32 +428,34 @@ export default function AdminPage() {
   const loadUsers = useCallback(async () => {
     setLoadingUsers(true)
     const { data } = await supabase.from('profiles').select('id, username, avatar_url, discord_user_id, is_banned, created_at').order('created_at', { ascending: false }).limit(200)
-    setUsers(data || [])
-    setLoadingUsers(false)
+    setUsers(data || []); setLoadingUsers(false)
   }, [])
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true)
     const { data } = await supabase.from('license_keys').select('*').order('created_at', { ascending: false }).limit(200)
-    setKeys(data || [])
-    setLoadingKeys(false)
+    setKeys(data || []); setLoadingKeys(false)
   }, [])
 
   const loadPlans = useCallback(async () => {
-    const { data } = await supabase.from('plans').select('id, name, tier, billing_interval, price').order('sort_order')
+    const { data } = await supabase.from('plans').select('*').order('sort_order')
     setPlans(data || [])
+  }, [])
+
+  const loadDownloads = useCallback(async () => {
+    const { data } = await supabase.from('downloads').select('*').order('sort_order')
+    setDownloads(data || [])
   }, [])
 
   const loadPaypal = useCallback(async () => {
     setLoadingPaypal(true)
-    const { data } = await supabase.from('paypal_orders').select('*, plans(name)').order('created_at', { ascending: false }).limit(200)
-    setPaypalOrders(data || [])
-    setLoadingPaypal(false)
+    const { data } = await supabase.from('paypal_orders').select('*, plans(name), profiles!paypal_orders_user_id_fkey(username)').order('created_at', { ascending: false }).limit(500)
+    setPaypalOrders(data || []); setLoadingPaypal(false)
   }, [])
 
   useEffect(() => {
-    if (isAdmin) { loadStats(); loadPlans() }
-  }, [isAdmin, loadStats, loadPlans])
+    if (isAdmin) { loadStats(); loadPlans(); loadDownloads() }
+  }, [isAdmin, loadStats, loadPlans, loadDownloads])
 
   const openUserEdit = async (userId: string) => {
     setLoadingUserDetail(userId)
@@ -330,9 +465,7 @@ export default function AdminPage() {
       supabase.from('license_keys').select('*').eq('user_id', userId),
       supabase.from('paypal_orders').select('*, plans(name)').eq('user_id', userId).order('created_at', { ascending: false }),
     ])
-    if (profile) {
-      setEditingUser({ ...profile, plans: userPlans || [], keys: userKeys || [], paypal: userPaypal || [] })
-    }
+    if (profile) setEditingUser({ ...profile, plans: userPlans || [], keys: userKeys || [], paypal: userPaypal || [] })
     setLoadingUserDetail(null)
   }
 
@@ -352,38 +485,58 @@ export default function AdminPage() {
 
   const resetKeyHwid = async (keyCode: string) => {
     setResettingHwid(keyCode)
-    const res = await fetch('/api/v1/keys/reset-hwid', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key_code: keyCode }) })
+    const res = await adminFetch('/api/v1/keys/reset-hwid', 'POST', { key_code: keyCode }, authToken)
     const d = await res.json()
     if (d.success) { toast({ title: 'HWID reset' }); loadKeys() }
     else toast({ variant: 'destructive', title: 'Error', description: d.error })
     setResettingHwid(null)
   }
 
+  const deletePlan = async (id: string) => {
+    if (!confirm('Delete this plan?')) return
+    setDeletingPlanId(id)
+    const res = await adminFetch('/api/admin/plans', 'DELETE', { id }, authToken)
+    const d = await res.json()
+    if (d.success) { toast({ title: 'Plan deleted' }); loadPlans() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setDeletingPlanId(null)
+  }
+
+  const deleteDownload = async (id: string) => {
+    if (!confirm('Delete this download?')) return
+    setDeletingDlId(id)
+    const res = await adminFetch('/api/admin/downloads', 'DELETE', { id }, authToken)
+    const d = await res.json()
+    if (d.success) { toast({ title: 'Deleted' }); loadDownloads() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setDeletingDlId(null)
+  }
+
   const filteredKeys = keys.filter(k => !keySearch || k.key_code.toLowerCase().includes(keySearch.toLowerCase()) || k.status.includes(keySearch.toLowerCase()))
   const filteredUsers = users.filter(u => !userSearch || (u.username || '').toLowerCase().includes(userSearch.toLowerCase()) || u.id.includes(userSearch))
 
-  if (loading || !isAdmin) return (
-    <div className="min-h-screen pt-24 flex items-center justify-center">
-      <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
-    </div>
-  )
+  const filteredPaypal = paypalOrders.filter(o => {
+    const s = paypalSearch.toLowerCase()
+    const matchText = !s || o.order_id.toLowerCase().includes(s) || (o.payer_name || '').toLowerCase().includes(s) || (o.payer_email || '').toLowerCase().includes(s) || ((o as any).profiles?.username || '').toLowerCase().includes(s)
+    const matchFrom = !paypalDateFrom || new Date(o.created_at) >= new Date(paypalDateFrom)
+    const matchTo = !paypalDateTo || new Date(o.created_at) <= new Date(paypalDateTo + 'T23:59:59')
+    return matchText && matchFrom && matchTo
+  })
+
+  if (loading || !isAdmin) return <div className="min-h-screen pt-24 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>
 
   return (
     <div className="min-h-screen pt-24 px-4 bg-[#08080f] text-white pb-20">
-      {editingUser && <UserEditModal user={editingUser} plans={plans} onClose={() => setEditingUser(null)}
-        onSaved={() => { loadUsers(); loadStats(); setEditingUser(null) }} toast={toast} />}
+      {editingUser && <UserEditModal user={editingUser} plans={plans} token={authToken} onClose={() => setEditingUser(null)} onSaved={() => { loadUsers(); loadStats(); setEditingUser(null) }} toast={toast} />}
+      {showPlanModal && <PlanEditModal plan={editingPlan === 'new' ? null : editingPlan as Plan} token={authToken} onClose={() => setShowPlanModal(false)} onSaved={() => { loadPlans(); setShowPlanModal(false) }} toast={toast} />}
+      {showDownloadModal && <DownloadEditModal item={editingDownload === 'new' ? null : editingDownload as DownloadItem} token={authToken} onClose={() => setShowDownloadModal(false)} onSaved={() => { loadDownloads(); setShowDownloadModal(false) }} toast={toast} />}
 
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center gap-3 mb-8">
           <div className="p-2 bg-cyan-950/50 rounded-lg border border-cyan-900/50"><Shield className="w-6 h-6 text-cyan-400" /></div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Admin Panel</h1>
-            <p className="text-slate-500 text-sm">StreamVibe management console</p>
-          </div>
+          <div><h1 className="text-2xl font-bold text-white">Admin Panel</h1><p className="text-slate-500 text-sm">StreamVibe management console</p></div>
           <Badge className="ml-2 bg-cyan-900/50 text-cyan-400 border-cyan-800">Admin</Badge>
-          <a href="/api-docs" className="ml-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors">
-            <BookOpen className="w-4 h-4" />API Docs
-          </a>
+          <a href="/api-docs" className="ml-auto flex items-center gap-1.5 text-xs text-slate-400 hover:text-cyan-400 transition-colors"><BookOpen className="w-4 h-4" />API Docs</a>
         </div>
 
         {/* Stats */}
@@ -393,14 +546,11 @@ export default function AdminPage() {
             { label: 'Active Keys', value: stats.activeKeys, icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-950/30 border-green-900/50' },
             { label: 'Total Keys', value: stats.totalKeys, icon: Key, color: 'text-purple-400', bg: 'bg-purple-950/30 border-purple-900/50' },
             { label: 'Active Plans', value: stats.activePlans, icon: CreditCard, color: 'text-cyan-400', bg: 'bg-cyan-950/30 border-cyan-900/50' },
-            { label: 'Revenue', value: `$${stats.revenue.toFixed(2)}`, icon: CreditCard, color: 'text-emerald-400', bg: 'bg-emerald-950/30 border-emerald-900/50' },
+            { label: 'Revenue', value: `$${stats.revenue.toFixed(2)}`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-950/30 border-emerald-900/50' },
           ].map((s, i) => (
             <Card key={i} className={cn('border', s.bg)}>
               <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">{s.label}</p>
-                  <p className={cn('text-2xl font-extrabold', s.color)}>{s.value}</p>
-                </div>
+                <div><p className="text-xs text-slate-500 mb-1">{s.label}</p><p className={cn('text-2xl font-extrabold', s.color)}>{s.value}</p></div>
                 <s.icon className={cn('w-8 h-8 opacity-30', s.color)} />
               </CardContent>
             </Card>
@@ -409,33 +559,21 @@ export default function AdminPage() {
 
         <Tabs defaultValue="users">
           <TabsList className="bg-[#12121e] border border-slate-800 p-1 mb-6 h-auto gap-1 flex-wrap">
-            <TabsTrigger value="users" className="data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" onClick={() => { if (users.length === 0) loadUsers() }}>
-              <Users className="w-4 h-4 mr-2" />Users
-            </TabsTrigger>
-            <TabsTrigger value="keys" className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300">
-              <Key className="w-4 h-4 mr-2" />License Keys
-            </TabsTrigger>
-            <TabsTrigger value="paypal" className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (paypalOrders.length === 0) loadPaypal() }}>
-              <CreditCard className="w-4 h-4 mr-2" />PayPal History
-            </TabsTrigger>
+            <TabsTrigger value="users" className="data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" onClick={() => { if (users.length === 0) loadUsers() }}><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
+            <TabsTrigger value="keys" className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300"><Key className="w-4 h-4 mr-2" />License Keys</TabsTrigger>
+            <TabsTrigger value="plans" className="data-[state=active]:bg-yellow-900/50 data-[state=active]:text-yellow-300"><Star className="w-4 h-4 mr-2" />Plans</TabsTrigger>
+            <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300"><Download className="w-4 h-4 mr-2" />Downloads</TabsTrigger>
+            <TabsTrigger value="paypal" className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (paypalOrders.length === 0) loadPaypal() }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
           </TabsList>
 
           {/* USERS TAB */}
           <TabsContent value="users">
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="text-white">Users</CardTitle>
-                  <CardDescription className="text-slate-500">{stats.users} registered accounts</CardDescription>
-                </div>
+                <div><CardTitle className="text-white">Users</CardTitle><CardDescription className="text-slate-500">{stats.users} registered accounts</CardDescription></div>
                 <div className="flex gap-2">
-                  <div className="relative">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <Input placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={loadUsers} disabled={loadingUsers} className="border-slate-700 text-slate-400 hover:text-white">
-                    {loadingUsers ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  </Button>
+                  <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
+                  <Button size="sm" variant="outline" onClick={loadUsers} disabled={loadingUsers} className="border-slate-700 text-slate-400 hover:text-white">{loadingUsers ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -444,36 +582,21 @@ export default function AdminPage() {
                 : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-slate-500 text-xs">
-                          <th className="text-left pb-3 font-medium">User</th>
-                          <th className="text-left pb-3 font-medium hidden md:table-cell">Joined</th>
-                          <th className="text-left pb-3 font-medium hidden lg:table-cell">Discord</th>
-                          <th className="text-left pb-3 font-medium">Status</th>
-                          <th className="text-right pb-3 font-medium">Actions</th>
-                        </tr>
-                      </thead>
+                      <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
+                        <th className="text-left pb-3 font-medium">User</th>
+                        <th className="text-left pb-3 font-medium hidden md:table-cell">Joined</th>
+                        <th className="text-left pb-3 font-medium">Status</th>
+                        <th className="text-right pb-3 font-medium">Actions</th>
+                      </tr></thead>
                       <tbody className="divide-y divide-slate-800/50">
                         {filteredUsers.map(u => (
                           <tr key={u.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 pr-4">
-                              <div>
-                                <span className="text-white font-medium">{u.username || <span className="text-slate-500 italic text-xs">unnamed</span>}</span>
-                                <p className="font-mono text-xs text-slate-600">{u.id.slice(0, 14)}…</p>
-                              </div>
-                            </td>
+                            <td className="py-3 pr-4"><div><span className="text-white font-medium">{u.username || <span className="text-slate-500 italic text-xs">unnamed</span>}</span><p className="font-mono text-xs text-slate-600">{u.id.slice(0, 14)}…</p></div></td>
                             <td className="py-3 pr-4 hidden md:table-cell text-slate-400 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
-                            <td className="py-3 pr-4 hidden lg:table-cell text-slate-500 text-xs font-mono">{u.discord_user_id || '—'}</td>
-                            <td className="py-3 pr-4">
-                              {u.is_banned
-                                ? <Badge className="bg-red-900/50 text-red-400 border-red-800 text-xs">Banned</Badge>
-                                : <Badge className="bg-green-900/50 text-green-400 border-green-800 text-xs">Active</Badge>}
-                            </td>
+                            <td className="py-3 pr-4">{u.is_banned ? <Badge className="bg-red-900/50 text-red-400 border-red-800 text-xs">Banned</Badge> : <Badge className="bg-green-900/50 text-green-400 border-green-800 text-xs">Active</Badge>}</td>
                             <td className="py-3 text-right">
-                              <Button size="sm" variant="ghost" className="h-7 px-2 text-slate-400 hover:text-white"
-                                disabled={loadingUserDetail === u.id} onClick={() => openUserEdit(u.id)}>
-                                {loadingUserDetail === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit2 className="w-3 h-3 mr-1" />}
-                                Edit
+                              <Button size="sm" variant="ghost" className="h-7 px-2 text-slate-400 hover:text-white" disabled={loadingUserDetail === u.id} onClick={() => openUserEdit(u.id)}>
+                                {loadingUserDetail === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit2 className="w-3 h-3 mr-1" />}Edit
                               </Button>
                             </td>
                           </tr>
@@ -493,12 +616,8 @@ export default function AdminPage() {
               <CardHeader><CardTitle className="text-white text-lg flex items-center gap-2"><Key className="w-5 h-5 text-purple-400" />Generate Keys</CardTitle></CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-4 items-end">
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Quantity (max 50)</label>
-                    <Input type="number" min={1} max={50} value={genCount} onChange={e => setGenCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} className="w-24 bg-[#0d0d1a] border-slate-700 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-48">
-                    <label className="text-xs text-slate-400 mb-1 block">Assign to Plan (optional)</label>
+                  <div><label className="text-xs text-slate-400 mb-1 block">Quantity (max 50)</label><Input type="number" min={1} max={50} value={genCount} onChange={e => setGenCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} className="w-24 bg-[#0d0d1a] border-slate-700 text-white" /></div>
+                  <div className="flex-1 min-w-48"><label className="text-xs text-slate-400 mb-1 block">Assign to Plan (optional)</label>
                     <select value={genPlanId} onChange={e => setGenPlanId(e.target.value)} className="w-full h-10 px-3 rounded-md border border-slate-700 bg-[#0d0d1a] text-white text-sm">
                       <option value="">— No specific plan —</option>
                       {plans.map(p => <option key={p.id} value={p.id}>{p.name} — ${p.price}</option>)}
@@ -514,22 +633,13 @@ export default function AdminPage() {
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <CardTitle className="text-white text-lg">All License Keys</CardTitle>
                 <div className="flex gap-2">
-                  <div className="relative">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <Input placeholder="Search..." value={keySearch} onChange={e => setKeySearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={loadKeys} disabled={loadingKeys} className="border-slate-700 text-slate-400 hover:text-white">
-                    {loadingKeys ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  </Button>
+                  <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search..." value={keySearch} onChange={e => setKeySearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
+                  <Button size="sm" variant="outline" onClick={loadKeys} disabled={loadingKeys} className="border-slate-700 text-slate-400 hover:text-white">{loadingKeys ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {keys.length === 0 && !loadingKeys ? (
-                  <div className="text-center py-12">
-                    <Key className="w-12 h-12 mx-auto mb-4 text-slate-700" />
-                    <p className="text-slate-500">No keys loaded.</p>
-                    <Button variant="outline" className="mt-4 border-slate-700 text-slate-400" onClick={loadKeys}>Load Keys</Button>
-                  </div>
+                  <div className="text-center py-12"><Key className="w-12 h-12 mx-auto mb-4 text-slate-700" /><p className="text-slate-500">No keys loaded.</p><Button variant="outline" className="mt-4 border-slate-700 text-slate-400" onClick={loadKeys}>Load Keys</Button></div>
                 ) : loadingKeys ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-purple-400 animate-spin" /></div>
                 : (
                   <div className="space-y-2">
@@ -541,22 +651,20 @@ export default function AdminPage() {
                           <div className="flex items-center gap-3 px-4 py-3 bg-[#0d0d1a] hover:bg-[#10101c] cursor-pointer" onClick={() => setExpandedKey(isExpanded ? null : k.id)}>
                             <span className="font-mono text-xs text-white tracking-wider flex-1">{k.key_code}</span>
                             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline', sm.bg, sm.color)}>{sm.label}</span>
-                            <span className="text-xs text-slate-600 hidden md:inline flex items-center gap-1"><Monitor className="w-3 h-3 inline mr-1" />{k.hwid_device_count || 0}/{k.max_devices || 5}</span>
+                            <span className="text-xs text-slate-600 hidden md:inline"><Monitor className="w-3 h-3 inline mr-1" />{k.hwid_device_count || 0}/{k.max_devices || 5}</span>
                             {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
                           </div>
                           {isExpanded && (
                             <div className="px-4 py-3 bg-[#08080f] border-t border-slate-800 space-y-3">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                <div><span className="text-slate-500">HWID Devices</span><p className="text-white font-medium">{k.hwid_device_count || 0} / {k.max_devices || 5}{k.hwid_locked && <span className="text-orange-400 ml-1">(Locked)</span>}</p></div>
-                                <div><span className="text-slate-500">IP Address</span><p className="text-white font-mono">{k.ip_address || '—'}</p></div>
+                                <div><span className="text-slate-500">Devices</span><p className="text-white font-medium">{k.hwid_device_count || 0} / {k.max_devices || 5}{k.hwid_locked && <span className="text-orange-400 ml-1">(Locked)</span>}</p></div>
+                                <div><span className="text-slate-500">IP</span><p className="text-white font-mono">{k.ip_address || '—'}</p></div>
                                 <div><span className="text-slate-500">Expires</span><p className="text-white">{k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}</p></div>
                                 <div><span className="text-slate-500">Redeemed</span><p className="text-white">{k.redeemed_at ? new Date(k.redeemed_at).toLocaleDateString() : '—'}</p></div>
                               </div>
                               <div className="flex gap-2 flex-wrap">
                                 <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white border border-slate-700" onClick={() => { navigator.clipboard.writeText(k.key_code); toast({ title: 'Copied' }) }}><Copy className="w-3 h-3 mr-1" />Copy</Button>
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-400 hover:text-orange-300 border border-orange-900" disabled={resettingHwid === k.key_code} onClick={() => resetKeyHwid(k.key_code)}>
-                                  {resettingHwid === k.key_code ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID
-                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-400 hover:text-orange-300 border border-orange-900" disabled={resettingHwid === k.key_code} onClick={() => resetKeyHwid(k.key_code)}>{resettingHwid === k.key_code ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID</Button>
                                 {k.status !== 'banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300 border border-red-900" onClick={() => updateKeyStatus(k.id, 'banned')}><Ban className="w-3 h-3 mr-1" />Ban</Button>}
                                 {k.status === 'banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 hover:text-green-300 border border-green-900" onClick={() => updateKeyStatus(k.id, 'inactive')}><CheckCircle className="w-3 h-3 mr-1" />Unban</Button>}
                                 {k.status === 'inactive' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 hover:text-green-300 border border-green-900" onClick={() => updateKeyStatus(k.id, 'active')}><CheckCircle className="w-3 h-3 mr-1" />Activate</Button>}
@@ -566,7 +674,79 @@ export default function AdminPage() {
                         </div>
                       )
                     })}
-                    <p className="text-xs text-slate-600 text-right pt-2">Showing {filteredKeys.length} of {keys.length} keys</p>
+                    <p className="text-xs text-slate-600 text-right pt-2">Showing {filteredKeys.length} of {keys.length}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* PLANS TAB */}
+          <TabsContent value="plans">
+            <Card className="bg-[#12121e] border-slate-800">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div><CardTitle className="text-white flex items-center gap-2"><Star className="w-5 h-5 text-yellow-400" />Plans</CardTitle><CardDescription className="text-slate-500">Manage pricing and plan details</CardDescription></div>
+                <Button onClick={() => { setEditingPlan('new'); setShowPlanModal(true) }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />New Plan</Button>
+              </CardHeader>
+              <CardContent>
+                {plans.length === 0 ? <p className="text-center text-slate-500 py-8">No plans loaded.</p> : (
+                  <div className="space-y-2">
+                    {plans.map(p => (
+                      <div key={p.id} className="flex items-center justify-between bg-[#0d0d1a] rounded-lg px-4 py-3 border border-slate-800">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier])}>{p.tier}</span>
+                          <div className="min-w-0">
+                            <p className="text-white font-medium text-sm truncate">{p.name}</p>
+                            <p className="text-xs text-slate-500">${p.price} · {p.billing_interval} · {p.duration_days ? `${p.duration_days}d` : 'lifetime'} · Sort: {p.sort_order}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-3 shrink-0">
+                          {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true) }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId === p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* DOWNLOADS TAB */}
+          <TabsContent value="downloads">
+            <Card className="bg-[#12121e] border-slate-800">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div><CardTitle className="text-white flex items-center gap-2"><Download className="w-5 h-5 text-cyan-400" />Downloads</CardTitle><CardDescription className="text-slate-500">Manage downloadable software</CardDescription></div>
+                <Button onClick={() => { setEditingDownload('new'); setShowDownloadModal(true) }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />Add Download</Button>
+              </CardHeader>
+              <CardContent>
+                {downloads.length === 0 ? <p className="text-center text-slate-500 py-8">No downloads yet.</p> : (
+                  <div className="space-y-2">
+                    {downloads.map(dl => (
+                      <div key={dl.id} className="bg-[#0d0d1a] rounded-lg border border-slate-800 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white font-semibold text-sm">{dl.name}</span>
+                              <span className="text-xs text-slate-500">{dl.version}</span>
+                              <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize', TIER_COLORS[dl.tier])}>{dl.tier}</span>
+                              {!dl.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                            </div>
+                            {dl.description && <p className="text-xs text-slate-500 mt-1">{dl.description}</p>}
+                            <div className="flex items-center gap-4 mt-1 text-xs text-slate-600 flex-wrap">
+                              {dl.file_url && <span className="flex items-center gap-1"><Download className="w-3 h-3" />Direct URL</span>}
+                              {dl.github_repo && <span className="flex items-center gap-1"><Package className="w-3 h-3" />GitHub{dl.is_github_private && ' (private)'}</span>}
+                              {dl.last_updated && <span>Updated {new Date(dl.last_updated).toLocaleDateString()}</span>}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingDownload(dl); setShowDownloadModal(true) }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingDlId === dl.id} onClick={() => deleteDownload(dl.id)}>{deletingDlId === dl.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -576,48 +756,48 @@ export default function AdminPage() {
           {/* PAYPAL TAB */}
           <TabsContent value="paypal">
             <Card className="bg-[#12121e] border-slate-800">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-white">PayPal Transaction History</CardTitle>
-                  <CardDescription className="text-slate-500">Total revenue: <span className="text-emerald-400 font-bold">${stats.revenue.toFixed(2)}</span></CardDescription>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div><CardTitle className="text-white">PayPal Transactions</CardTitle><CardDescription className="text-slate-500">Revenue: <span className="text-emerald-400 font-bold">${stats.revenue.toFixed(2)}</span></CardDescription></div>
+                  <Button size="sm" variant="outline" onClick={loadPaypal} disabled={loadingPaypal} className="border-slate-700 text-slate-400 hover:text-white">{loadingPaypal ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}Refresh</Button>
                 </div>
-                <Button size="sm" variant="outline" onClick={loadPaypal} disabled={loadingPaypal} className="border-slate-700 text-slate-400 hover:text-white">
-                  {loadingPaypal ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}Refresh
-                </Button>
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <div className="relative flex-1 min-w-48"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Username, Transaction ID, email..." value={paypalSearch} onChange={e => setPaypalSearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white" /></div>
+                  <Input type="date" value={paypalDateFrom} onChange={e => setPaypalDateFrom(e.target.value)} className="bg-[#0d0d1a] border-slate-700 text-white w-40" />
+                  <Input type="date" value={paypalDateTo} onChange={e => setPaypalDateTo(e.target.value)} className="bg-[#0d0d1a] border-slate-700 text-white w-40" />
+                  {(paypalSearch || paypalDateFrom || paypalDateTo) && <Button size="sm" variant="ghost" onClick={() => { setPaypalSearch(''); setPaypalDateFrom(''); setPaypalDateTo('') }} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></Button>}
+                </div>
               </CardHeader>
               <CardContent>
                 {loadingPaypal ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-emerald-400 animate-spin" /></div>
-                : paypalOrders.length === 0 ? <p className="text-center text-slate-500 py-12">No PayPal orders yet.</p>
+                : filteredPaypal.length === 0 ? <p className="text-center text-slate-500 py-12">{paypalOrders.length === 0 ? 'No PayPal orders yet.' : 'No results match your search.'}</p>
                 : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-slate-500 text-xs">
-                          <th className="text-left pb-3 font-medium">Order ID</th>
-                          <th className="text-left pb-3 font-medium">Plan</th>
-                          <th className="text-left pb-3 font-medium hidden md:table-cell">Payer</th>
-                          <th className="text-left pb-3 font-medium">Amount</th>
-                          <th className="text-left pb-3 font-medium">Status</th>
-                          <th className="text-left pb-3 font-medium hidden lg:table-cell">Date</th>
-                        </tr>
-                      </thead>
+                      <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
+                        <th className="text-left pb-3 font-medium">Order ID</th>
+                        <th className="text-left pb-3 font-medium">Plan</th>
+                        <th className="text-left pb-3 font-medium hidden md:table-cell">Payer</th>
+                        <th className="text-left pb-3 font-medium hidden sm:table-cell">User</th>
+                        <th className="text-left pb-3 font-medium">Amount</th>
+                        <th className="text-left pb-3 font-medium">Status</th>
+                        <th className="text-left pb-3 font-medium hidden lg:table-cell">Date</th>
+                      </tr></thead>
                       <tbody className="divide-y divide-slate-800/50">
-                        {paypalOrders.map(o => (
+                        {filteredPaypal.map(o => (
                           <tr key={o.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 pr-4 font-mono text-xs text-slate-400">{o.order_id.slice(0, 14)}…</td>
+                            <td className="py-3 pr-4 font-mono text-xs text-slate-400">{o.order_id.slice(0, 12)}…</td>
                             <td className="py-3 pr-4 text-white text-xs">{(o.plans as any)?.name || '—'}</td>
-                            <td className="py-3 pr-4 hidden md:table-cell">
-                              <div className="text-xs"><p className="text-white">{o.payer_name || '—'}</p><p className="text-slate-500">{o.payer_email || ''}</p></div>
-                            </td>
+                            <td className="py-3 pr-4 hidden md:table-cell"><div className="text-xs"><p className="text-white">{o.payer_name || '—'}</p><p className="text-slate-500">{o.payer_email || ''}</p></div></td>
+                            <td className="py-3 pr-4 hidden sm:table-cell text-xs text-slate-400">{(o as any).profiles?.username || '—'}</td>
                             <td className="py-3 pr-4 text-emerald-400 font-bold">${o.amount?.toFixed(2)}</td>
-                            <td className="py-3 pr-4">
-                              <Badge className={o.status === 'completed' ? 'bg-green-900/50 text-green-400 border-green-800 text-xs' : 'bg-slate-800 text-slate-400 text-xs'}>{o.status}</Badge>
-                            </td>
+                            <td className="py-3 pr-4"><Badge className={o.status === 'completed' ? 'bg-green-900/50 text-green-400 border-green-800 text-xs' : 'bg-slate-800 text-slate-400 text-xs'}>{o.status}</Badge></td>
                             <td className="py-3 hidden lg:table-cell text-slate-400 text-xs">{new Date(o.created_at).toLocaleDateString()}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    <p className="text-xs text-slate-600 text-right pt-2">Showing {filteredPaypal.length} of {paypalOrders.length}</p>
                   </div>
                 )}
               </CardContent>

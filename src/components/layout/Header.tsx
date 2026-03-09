@@ -1,7 +1,7 @@
 "use client"
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard, BookOpen } from 'lucide-react'
+import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard } from 'lucide-react'
 import Logo from './Logo'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -16,7 +16,6 @@ export default function Header() {
     { name: 'Home', href: '/' },
     { name: 'Features', href: '/#features' },
     { name: 'Pricing', href: '/#pricing' },
-    { name: 'API Docs', href: '/api-docs' },
   ]
 
   return (
@@ -24,7 +23,6 @@ export default function Header() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/"><Logo /></Link>
-
           <nav className="hidden md:flex space-x-8">
             {navLinks.map((link) => (
               <Link key={link.name} href={link.href} className="text-slate-300 hover:text-white transition-colors text-sm font-medium">
@@ -32,7 +30,6 @@ export default function Header() {
               </Link>
             ))}
           </nav>
-
           <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <DropdownMenu>
@@ -81,13 +78,11 @@ export default function Header() {
               </Button>
             )}
           </div>
-
           <button className="md:hidden text-slate-300 hover:text-white p-2" onClick={() => setMenuOpen(!menuOpen)}>
             {menuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
       </div>
-
       {menuOpen && (
         <div className="md:hidden bg-slate-900 border-b border-slate-800">
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
@@ -99,12 +94,11 @@ export default function Header() {
             {user ? (
               <>
                 <Link href="/dashboard" className="text-slate-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium" onClick={() => setMenuOpen(false)}>Dashboard</Link>
+                <Link href="/billing" className="text-slate-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium" onClick={() => setMenuOpen(false)}>Billing</Link>
                 {isAdmin && (
                   <Link href="/admin" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setMenuOpen(false)}>Admin Panel</Link>
                 )}
-                <button onClick={() => { signOut(); setMenuOpen(false) }} className="text-red-400 hover:text-red-300 block w-full text-left px-3 py-2 rounded-md text-base font-medium">
-                  Log out
-                </button>
+                <button onClick={() => { signOut(); setMenuOpen(false) }} className="text-red-400 hover:text-red-300 block w-full text-left px-3 py-2 rounded-md text-base font-medium">Log out</button>
               </>
             ) : (
               <Link href="/login" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md font-bold" onClick={() => setMenuOpen(false)}>Sign In</Link>
