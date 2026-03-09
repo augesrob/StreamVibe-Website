@@ -306,7 +306,7 @@ export default function DashboardPage() {
                           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
                               <span className="font-mono text-sm text-white tracking-wider truncate">
-                                {revealedKeys.has(k.id) ? k.key_code : k.key_code.replace(/[A-Z0-9]/g, '•')}
+                                {revealedKeys.has(k.id) ? k.key_code : k.key_code.replace(/[A-Z0-9]/g, 'â€¢')}
                               </span>
                               <button
                                 onClick={() => setRevealedKeys(prev => { const s = new Set(prev); s.has(k.id) ? s.delete(k.id) : s.add(k.id); return s })}
@@ -367,7 +367,7 @@ export default function DashboardPage() {
                   <div className="text-center py-12">
                     <CreditCard className="w-12 h-12 mx-auto mb-4 text-slate-700" />
                     <p className="text-slate-500">No transactions found.</p>
-                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢</a>
+                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢</a>
                   </div>
                 ) : (
                   <div className="space-y-2">
