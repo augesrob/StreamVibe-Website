@@ -14,14 +14,12 @@ interface AuthContextType {
   signOut: () => Promise<void>
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, loading: true, isAdmin: false,
   signIn: async (email, password) => ({ error: null }),
   signUp: async (email, password, metadata) => ({ data: null, error: null }),
   signOut: async () => {},
 })
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export const useAuth = () => useContext(AuthContext)
 

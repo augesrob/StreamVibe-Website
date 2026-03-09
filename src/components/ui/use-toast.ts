@@ -17,7 +17,6 @@ const addToRemoveQueue = (toastId: string) => {
   const timeout = setTimeout(() => { toastTimeouts.delete(toastId); dispatch({ type: "REMOVE_TOAST", toastId }) }, TOAST_REMOVE_DELAY)
   toastTimeouts.set(toastId, timeout)
 }
-
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
     case "ADD_TOAST": return { ...state, toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT) }
@@ -42,7 +41,6 @@ function toast({ ...props }: Toast) {
   return { id, dismiss, update }
 }
 function useToast() {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [state, setState] = React.useState<State>(memoryState)
   React.useEffect(() => {
     listeners.push(setState)
