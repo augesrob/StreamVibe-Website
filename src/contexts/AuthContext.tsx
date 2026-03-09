@@ -14,12 +14,14 @@ interface AuthContextType {
   signOut: () => Promise<void>
 }
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, loading: true, isAdmin: false,
-  signIn: async (_email: string, _password: string) => ({ error: null }),
-  signUp: async (_email: string, _password: string, _metadata?: any) => ({ data: null, error: null }),
+  signIn: async (email, password) => ({ error: null }),
+  signUp: async (email, password, metadata) => ({ data: null, error: null }),
   signOut: async () => {},
 })
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export const useAuth = () => useContext(AuthContext)
 
@@ -37,19 +39,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      checkAdmin(session?.user ?? null)
-      setLoading(false)
+      setSession(session); setUser(session?.user ?? null)
+      checkAdmin(session?.user ?? null); setLoading(false)
     })
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      checkAdmin(session?.user ?? null)
-      setLoading(false)
+      setSession(session); setUser(session?.user ?? null)
+      checkAdmin(session?.user ?? null); setLoading(false)
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
@@ -80,4 +76,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     </AuthContext.Provider>
   )
 }
-

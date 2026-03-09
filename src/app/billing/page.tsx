@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -28,9 +28,12 @@ const tierMeta = {
   pro:    { label: 'Pro',    icon: Star,  color: 'text-cyan-400',   border: 'border-cyan-700' },
   legend: { label: 'Legend', icon: Crown, color: 'text-purple-400', border: 'border-purple-700' },
 }
-const intervalLabel: Record<Interval, string> = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', lifetime: 'Lifetime' }
+const intervalLabel: Record<Interval, string> = {
+  monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', lifetime: 'Lifetime'
+}
 
-export default function BillingPage() {
+// Inner component that uses useSearchParams (must be wrapped in Suspense)
+function BillingContent() {
   const { user, loading: authLoading } = useAuth()
   const { toast } = useToast()
   const router = useRouter()
@@ -44,7 +47,9 @@ export default function BillingPage() {
   const [interval, setInterval] = useState<Interval>('monthly')
   const [purchasing, setPurchasing] = useState<string | null>(null)
 
-  useEffect(() => { if (!authLoading && !user) router.push('/login') }, [authLoading, user, router])
+  useEffect(() => {
+    if (!authLoading && !user) router.push('/login')
+  }, [authLoading, user, router])
 
   const loadData = useCallback(async () => {
     if (!user) return
@@ -59,32 +64,34 @@ export default function BillingPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Handle PayPal return URL
+  // Handle PayPal return URL (?paypal=success&token=ORDER_ID&plan=PLAN_ID)
   useEffect(() => {
     const status = searchParams.get('paypal')
     const planId = searchParams.get('plan')
-    const orderId = searchParams.get('token') // PayPal appends token to return_url
+    const orderId = searchParams.get('token')
+    if (!status || !user) return
 
-    if (status === 'success' && orderId && planId && user) {
-      // Capture the order
+    if (status === 'success' && orderId && planId) {
       fetch('/api/paypal/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_id: orderId, plan_id: planId, user_id: user.id }),
-      }).then(r => r.json()).then(data => {
-        if (data.success) {
-          toast({ title: '🎉 Payment Successful!', description: data.message })
-          loadData()
-          router.replace('/billing')
-        } else {
-          toast({ variant: 'destructive', title: 'Payment Issue', description: data.error || 'Contact support.' })
-        }
       })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            toast({ title: '🎉 Payment Successful!', description: data.message })
+            loadData()
+            router.replace('/billing')
+          } else {
+            toast({ variant: 'destructive', title: 'Payment Issue', description: data.error || 'Contact support.' })
+          }
+        })
     } else if (status === 'cancel') {
       toast({ title: 'Payment Cancelled', description: 'Your payment was not completed.' })
       router.replace('/billing')
     }
-  }, [searchParams, user, router, toast, loadData])
+  }, [searchParams, user]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePurchase = async (plan: Plan) => {
     if (!user) { router.push('/login'); return }
@@ -96,36 +103,30 @@ export default function BillingPage() {
         body: JSON.stringify({ plan_id: plan.id, user_id: user.id }),
       })
       const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error)
-
-      // Get PayPal approval URL
-      const approvalRes = await fetch(`https://api-m.paypal.com/v2/checkout/orders/${data.order_id}`, {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      }).catch(() => null)
-
-      // Redirect to PayPal checkout — fetch approval link from order
-      const orderRes = await fetch('/api/paypal/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: plan.id, user_id: user.id }),
-      })
-      // Actually just redirect: PayPal returns checkout URL via standard flow
-      // We'll redirect user to PayPal via a simple redirect
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to create order')
+      // Redirect to PayPal checkout — PayPal appends ?token=ORDER_ID on return
       window.location.href = `https://www.paypal.com/checkoutnow?token=${data.order_id}`
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Payment Error', description: e.message })
+      setPurchasing(null)
     }
-    setPurchasing(null)
   }
 
   const handleRedeem = async () => {
     if (!redeemCode.trim()) return
     setRedeeming(true)
-    const { data, error } = await supabase.functions.invoke('redeem-license-key', { body: { key_code: redeemCode.trim() } })
+    const { data, error } = await supabase.functions.invoke('redeem-license-key', {
+      body: { key_code: redeemCode.trim() },
+    })
     setRedeeming(false)
     if (error) toast({ variant: 'destructive', title: 'Error', description: error.message })
-    else if (data?.success) { toast({ title: 'Key Redeemed!', description: data.message }); setRedeemCode(''); loadData() }
-    else toast({ variant: 'destructive', title: 'Invalid Key', description: data?.message || 'Could not redeem key.' })
+    else if (data?.success) {
+      toast({ title: 'Key Redeemed!', description: data.message })
+      setRedeemCode('')
+      loadData()
+    } else {
+      toast({ variant: 'destructive', title: 'Invalid Key', description: data?.message || 'Could not redeem key.' })
+    }
   }
 
   const isOwned = (planId: string) =>
@@ -138,7 +139,9 @@ export default function BillingPage() {
   }
 
   const planFor = (tier: Tier) =>
-    tier === 'free' ? plans.find(p => p.tier === 'free') : plans.find(p => p.tier === tier && p.billing_interval === interval)
+    tier === 'free'
+      ? plans.find(p => p.tier === 'free')
+      : plans.find(p => p.tier === tier && p.billing_interval === interval)
 
   if (authLoading || loading) return (
     <div className="min-h-screen pt-24 flex items-center justify-center">
@@ -154,11 +157,12 @@ export default function BillingPage() {
           <p className="text-slate-400">Manage your subscription and redeem license keys.</p>
         </div>
 
-        {/* Active Plans */}
         {userPlans.length > 0 && (
           <Card className="bg-[#12121e] border-slate-800">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-white"><Sparkles className="w-5 h-5 text-cyan-400" />Your Active Plans</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Sparkles className="w-5 h-5 text-cyan-400" />Your Active Plans
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid sm:grid-cols-2 gap-3">
@@ -179,9 +183,10 @@ export default function BillingPage() {
           </Card>
         )}
 
-        {/* Plans Grid */}
         <div>
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Crown className="w-5 h-5 text-purple-400" />Available Plans</h2>
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <Crown className="w-5 h-5 text-purple-400" />Available Plans
+          </h2>
           <div className="flex mb-5">
             <div className="inline-flex bg-slate-900 border border-slate-800 rounded-xl p-1 gap-1">
               {INTERVALS.map(iv => (
@@ -194,7 +199,6 @@ export default function BillingPage() {
               ))}
             </div>
           </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {TIERS.map(tier => {
               const plan = planFor(tier)
@@ -258,10 +262,11 @@ export default function BillingPage() {
           </div>
         </div>
 
-        {/* Redeem Key */}
         <Card className="bg-[#12121e] border-slate-800">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white"><Key className="w-5 h-5 text-purple-400" />Redeem License Key</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Key className="w-5 h-5 text-purple-400" />Redeem License Key
+            </CardTitle>
             <CardDescription className="text-slate-400">Enter a license key to activate a plan instantly.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -291,5 +296,18 @@ export default function BillingPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// Exported page wraps the content in Suspense (required for useSearchParams in Next.js 14)
+export default function BillingPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen pt-24 flex items-center justify-center bg-[#08080f]">
+        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
+      </div>
+    }>
+      <BillingContent />
+    </Suspense>
   )
 }
