@@ -1,6 +1,6 @@
 "use client"
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/use-toast'
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Check, CreditCard, Loader2, CheckCircle2, ArrowRight, Calendar, Key, Sparkles, Zap, Star, Crown, Gift, Clock } from 'lucide-react'
+import { Check, Loader2, CheckCircle2, ArrowRight, Key, Sparkles, Zap, Star, Crown, Gift, Clock, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Plan {
@@ -23,39 +23,100 @@ type Interval = typeof INTERVALS[number]
 type Tier = typeof TIERS[number]
 
 const tierMeta = {
-  free:   { label: 'Free',   icon: Gift,  color: 'text-slate-400',  border: 'border-slate-700',  activeGlow: '' },
-  basic:  { label: 'Basic',  icon: Zap,   color: 'text-blue-400',   border: 'border-blue-800',   activeGlow: 'shadow-blue-900/30' },
-  pro:    { label: 'Pro',    icon: Star,  color: 'text-cyan-400',   border: 'border-cyan-700',   activeGlow: 'shadow-cyan-900/30' },
-  legend: { label: 'Legend', icon: Crown, color: 'text-purple-400', border: 'border-purple-700', activeGlow: 'shadow-purple-900/30' },
+  free:   { label: 'Free',   icon: Gift,  color: 'text-slate-400',  border: 'border-slate-700' },
+  basic:  { label: 'Basic',  icon: Zap,   color: 'text-blue-400',   border: 'border-blue-800' },
+  pro:    { label: 'Pro',    icon: Star,  color: 'text-cyan-400',   border: 'border-cyan-700' },
+  legend: { label: 'Legend', icon: Crown, color: 'text-purple-400', border: 'border-purple-700' },
 }
-
 const intervalLabel: Record<Interval, string> = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', lifetime: 'Lifetime' }
 
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuth()
   const { toast } = useToast()
   const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [plans, setPlans] = useState<Plan[]>([])
   const [userPlans, setUserPlans] = useState<UserPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [redeemCode, setRedeemCode] = useState('')
   const [redeeming, setRedeeming] = useState(false)
   const [interval, setInterval] = useState<Interval>('monthly')
-  const [activeTier, setActiveTier] = useState<Tier>('free')
+  const [purchasing, setPurchasing] = useState<string | null>(null)
 
   useEffect(() => { if (!authLoading && !user) router.push('/login') }, [authLoading, user, router])
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!user) return
-    Promise.all([
+    const [{ data: pd }, { data: ud }] = await Promise.all([
       supabase.from('plans').select('*').order('sort_order'),
       supabase.from('user_plans').select('*, plans(*)').eq('user_id', user.id),
-    ]).then(([{ data: pd }, { data: ud }]) => {
-      setPlans(pd || [])
-      setUserPlans(ud || [])
-      setLoading(false)
-    })
+    ])
+    setPlans(pd || [])
+    setUserPlans(ud || [])
+    setLoading(false)
   }, [user])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Handle PayPal return URL
+  useEffect(() => {
+    const status = searchParams.get('paypal')
+    const planId = searchParams.get('plan')
+    const orderId = searchParams.get('token') // PayPal appends token to return_url
+
+    if (status === 'success' && orderId && planId && user) {
+      // Capture the order
+      fetch('/api/paypal/capture-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, plan_id: planId, user_id: user.id }),
+      }).then(r => r.json()).then(data => {
+        if (data.success) {
+          toast({ title: '🎉 Payment Successful!', description: data.message })
+          loadData()
+          router.replace('/billing')
+        } else {
+          toast({ variant: 'destructive', title: 'Payment Issue', description: data.error || 'Contact support.' })
+        }
+      })
+    } else if (status === 'cancel') {
+      toast({ title: 'Payment Cancelled', description: 'Your payment was not completed.' })
+      router.replace('/billing')
+    }
+  }, [searchParams, user, router, toast, loadData])
+
+  const handlePurchase = async (plan: Plan) => {
+    if (!user) { router.push('/login'); return }
+    setPurchasing(plan.id)
+    try {
+      const res = await fetch('/api/paypal/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: plan.id, user_id: user.id }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error)
+
+      // Get PayPal approval URL
+      const approvalRes = await fetch(`https://api-m.paypal.com/v2/checkout/orders/${data.order_id}`, {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+      }).catch(() => null)
+
+      // Redirect to PayPal checkout — fetch approval link from order
+      const orderRes = await fetch('/api/paypal/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: plan.id, user_id: user.id }),
+      })
+      // Actually just redirect: PayPal returns checkout URL via standard flow
+      // We'll redirect user to PayPal via a simple redirect
+      window.location.href = `https://www.paypal.com/checkoutnow?token=${data.order_id}`
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Payment Error', description: e.message })
+    }
+    setPurchasing(null)
+  }
 
   const handleRedeem = async () => {
     if (!redeemCode.trim()) return
@@ -63,7 +124,7 @@ export default function BillingPage() {
     const { data, error } = await supabase.functions.invoke('redeem-license-key', { body: { key_code: redeemCode.trim() } })
     setRedeeming(false)
     if (error) toast({ variant: 'destructive', title: 'Error', description: error.message })
-    else if (data?.success) { toast({ title: 'Key Redeemed!', description: data.message }); setRedeemCode('') }
+    else if (data?.success) { toast({ title: 'Key Redeemed!', description: data.message }); setRedeemCode(''); loadData() }
     else toast({ variant: 'destructive', title: 'Invalid Key', description: data?.message || 'Could not redeem key.' })
   }
 
@@ -120,10 +181,8 @@ export default function BillingPage() {
 
         {/* Plans Grid */}
         <div>
-          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Crown className="w-5 h-5 text-purple-400" />Available Plans</h2>
-
-          {/* Interval switcher */}
-          <div className="flex mb-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Crown className="w-5 h-5 text-purple-400" />Available Plans</h2>
+          <div className="flex mb-5">
             <div className="inline-flex bg-slate-900 border border-slate-800 rounded-xl p-1 gap-1">
               {INTERVALS.map(iv => (
                 <button key={iv} onClick={() => setInterval(iv)}
@@ -143,6 +202,7 @@ export default function BillingPage() {
               const meta = tierMeta[tier]
               const Icon = meta.icon
               const owned = isOwned(plan.id)
+              const isBuying = purchasing === plan.id
               return (
                 <Card key={tier} className={cn('flex flex-col bg-[#0d0d1a] border transition-all hover:-translate-y-0.5', meta.border, owned && 'ring-1 ring-green-700')}>
                   <CardHeader className="pb-3">
@@ -154,7 +214,9 @@ export default function BillingPage() {
                     </div>
                     <p className="text-2xl font-extrabold text-white">{plan.price === 0 ? 'Free' : `$${plan.price}`}</p>
                     <p className="text-xs text-slate-500">
-                      {plan.price === 0 ? 'No card needed' : plan.billing_interval === 'lifetime' ? 'one-time' : `/${plan.billing_interval === 'monthly' ? 'mo' : plan.billing_interval === 'quarterly' ? 'qtr' : 'yr'}`}
+                      {plan.price === 0 ? 'No card needed'
+                        : plan.billing_interval === 'lifetime' ? 'one-time payment'
+                        : `/${plan.billing_interval === 'monthly' ? 'mo' : plan.billing_interval === 'quarterly' ? 'qtr' : 'yr'}`}
                     </p>
                     {plan.custom_note && <p className={cn('text-xs font-medium mt-1', meta.color)}>{plan.custom_note}</p>}
                   </CardHeader>
@@ -172,10 +234,21 @@ export default function BillingPage() {
                       <Button disabled className="w-full text-xs bg-green-900/20 text-green-500 border border-green-900">
                         <Check className="w-3 h-3 mr-1" />Active
                       </Button>
+                    ) : tier === 'free' ? (
+                      <Button asChild className="w-full text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white">
+                        <a href="/signup">Sign Up Free</a>
+                      </Button>
                     ) : (
-                      <Button className="w-full text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white group"
-                        onClick={() => toast({ title: 'Coming Soon', description: 'Payment integration coming soon!' })}>
-                        Purchase <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                      <Button
+                        className="w-full text-xs bg-[#1a1a2e] hover:bg-slate-800 border border-slate-700 text-white group font-bold"
+                        disabled={isBuying}
+                        onClick={() => handlePurchase(plan)}
+                      >
+                        {isBuying
+                          ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                          : <ExternalLink className="w-3 h-3 mr-1" />}
+                        {isBuying ? 'Redirecting…' : 'Pay with PayPal'}
+                        {!isBuying && <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform" />}
                       </Button>
                     )}
                   </CardFooter>
@@ -189,7 +262,7 @@ export default function BillingPage() {
         <Card className="bg-[#12121e] border-slate-800">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-white"><Key className="w-5 h-5 text-purple-400" />Redeem License Key</CardTitle>
-            <CardDescription className="text-slate-400">Enter a license key you received to activate a plan.</CardDescription>
+            <CardDescription className="text-slate-400">Enter a license key to activate a plan instantly.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex gap-3">
@@ -208,7 +281,6 @@ export default function BillingPage() {
           </CardContent>
         </Card>
 
-        {/* Quick links */}
         <div className="flex gap-4 text-sm">
           <a href="/dashboard" className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
             <ArrowRight className="w-3.5 h-3.5" />Dashboard

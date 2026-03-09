@@ -16,8 +16,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, loading: true, isAdmin: false,
-  signIn: async () => ({ error: null }),
-  signUp: async () => ({ data: null, error: null }),
+  signIn: async (_email: string, _password: string) => ({ error: null }),
+  signUp: async (_email: string, _password: string, _metadata?: any) => ({ data: null, error: null }),
   signOut: async () => {},
 })
 
@@ -80,3 +80,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     </AuthContext.Provider>
   )
 }
+
