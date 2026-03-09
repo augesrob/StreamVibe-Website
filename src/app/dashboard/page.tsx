@@ -41,6 +41,9 @@ export default function DashboardPage() {
   const router = useRouter()
   const [userPlans, setUserPlans] = useState<UserPlan[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
+  const [userKeys, setUserKeys] = useState<UserKey[]>([])
+  const [loadingKeys, setLoadingKeys] = useState(false)
+  const [resettingHwid, setResettingHwid] = useState<string | null>(null)
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -56,6 +59,24 @@ export default function DashboardPage() {
     const t = up.plans?.tier || 'free'
     return (tierRank[t] || 0) > (tierRank[best] || 0) ? t : best
   }, 'free')
+
+  const loadUserKeys = async () => {
+    if (!user) return
+    setLoadingKeys(true)
+    const { data } = await supabase.from('license_keys').select('id, key_code, status, hwid_device_count, hwid_locked, max_devices, expires_at').eq('user_id', user.id)
+    setUserKeys(data || [])
+    setLoadingKeys(false)
+  }
+
+  const resetMyHwid = async (keyCode: string) => {
+    setResettingHwid(keyCode)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/v1/keys/reset-hwid', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` }, body: JSON.stringify({ key_code: keyCode }) })
+    const d = await res.json()
+    if (d.success) { toast({ title: 'Devices reset', description: 'All devices cleared.' }); loadUserKeys() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error || 'Contact support.' })
+    setResettingHwid(null)
+  }
 
   if (loading) return <div className="min-h-screen pt-24 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>
   if (!user) return null
