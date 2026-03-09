@@ -7,12 +7,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift } from 'lucide-react'
+import { useToast } from '@/components/ui/use-toast'
+import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift, Monitor, RotateCcw, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface UserPlan {
   id: string; plan_id: string; expires_at: string | null
   plans?: { name: string; tier: string; features: string[] }
+}
+
+interface UserKey {
+  id: string; key_code: string; status: string
+  hwid_device_count: number; hwid_locked: boolean; max_devices: number
+  expires_at: string | null
 }
 
 const tierColors: Record<string, string> = {
@@ -30,6 +37,7 @@ const tierRank: Record<string, number> = { free: 0, basic: 1, pro: 2, legend: 3 
 
 export default function DashboardPage() {
   const { user, loading } = useAuth()
+  const { toast } = useToast()
   const router = useRouter()
   const [userPlans, setUserPlans] = useState<UserPlan[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
@@ -70,6 +78,9 @@ export default function DashboardPage() {
             </TabsTrigger>
             <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300">
               <Download className="w-4 h-4 mr-2" />Downloads
+            </TabsTrigger>
+            <TabsTrigger value="devices" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300">
+              <Monitor className="w-4 h-4 mr-2" />My Devices
             </TabsTrigger>
             <TabsTrigger value="settings" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300">
               <Settings className="w-4 h-4 mr-2" />Settings
@@ -188,8 +199,58 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>          <TabsContent value="devices">
+            <Card className="bg-[#12121e] border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2"><Monitor className="w-5 h-5 text-cyan-400" />My Devices</CardTitle>
+                <CardDescription className="text-slate-500">Manage HWID device locks on your license keys. Each key supports up to 5 devices.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {userKeys.length === 0 && !loadingKeys ? (
+                  <div className="text-center py-12">
+                    <Monitor className="w-12 h-12 mx-auto mb-4 text-slate-700" />
+                    <p className="text-slate-500 mb-4">No keys found on your account.</p>
+                    <button onClick={loadUserKeys} className="text-sm text-cyan-400 hover:underline">Load my keys</button>
+                  </div>
+                ) : loadingKeys ? (
+                  <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 text-cyan-400 animate-spin" /></div>
+                ) : (
+                  <div className="space-y-4">
+                    {userKeys.map(k => {
+                      const pct = Math.round(((k.hwid_device_count || 0) / (k.max_devices || 5)) * 100)
+                      const atLimit = (k.hwid_device_count || 0) >= (k.max_devices || 5)
+                      return (
+                        <div key={k.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 p-4">
+                          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+                            <span className="font-mono text-sm text-white tracking-wider">{k.key_code}</span>
+                            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', k.status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-400')}>{k.status}</span>
+                          </div>
+                          <div className="mb-3">
+                            <div className="flex justify-between text-xs text-slate-400 mb-1">
+                              <span className="flex items-center gap-1"><Monitor className="w-3 h-3" />Devices used</span>
+                              <span className={atLimit ? 'text-red-400 font-bold' : ''}>{k.hwid_device_count || 0} / {k.max_devices || 5}</span>
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-1.5">
+                              <div className={cn("h-1.5 rounded-full transition-all", atLimit ? "bg-red-500" : pct > 60 ? "bg-orange-500" : "bg-cyan-500")} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                          {k.hwid_locked && (
+                            <div className="flex items-center gap-2 text-xs text-orange-400 bg-orange-900/20 border border-orange-900/40 rounded-lg px-3 py-2 mb-3">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />Device limit reached. Reset to use on a new device.
+                            </div>
+                          )}
+                          <button onClick={() => resetMyHwid(k.key_code)} disabled={resettingHwid === k.key_code}
+                            className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-cyan-700 transition-all disabled:opacity-50">
+                            {resettingHwid === k.key_code ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}Reset All Devices
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
-
           <TabsContent value="settings">
             <Card className="bg-[#12121e] border-slate-800 text-white">
               <CardHeader>

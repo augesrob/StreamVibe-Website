@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Copy, Check, ChevronDown, ChevronRight, Shield, Key, Users, Webhook, ExternalLink } from 'lucide-react'
 
-const BASE_URL = 'https://streamvibe-website.vercel.app'
+const BASE_URL = 'https://streamvibe.nl'
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 interface Endpoint {

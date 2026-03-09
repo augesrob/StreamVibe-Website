@@ -1,7 +1,7 @@
 "use client"
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard } from 'lucide-react'
+import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard, BookOpen } from 'lucide-react'
 import Logo from './Logo'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -16,6 +16,7 @@ export default function Header() {
     { name: 'Home', href: '/' },
     { name: 'Features', href: '/#features' },
     { name: 'Pricing', href: '/#pricing' },
+    { name: 'API Docs', href: '/api-docs' },
   ]
 
   return (
