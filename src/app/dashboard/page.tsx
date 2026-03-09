@@ -116,15 +116,23 @@ export default function DashboardPage() {
     if (!user) return
     if (file.size > 5 * 1024 * 1024) { toast({ variant: 'destructive', title: 'File too large', description: 'Max 5MB.' }); return }
     setUploadingAvatar(true)
-    const ext = file.name.split('.').pop()
-    const path = `avatars/${user.id}.${ext}`
-    const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
-    if (uploadError) { toast({ variant: 'destructive', title: 'Upload failed', description: uploadError.message }); setUploadingAvatar(false); return }
-    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
-    const { error: updateError } = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
-    if (updateError) toast({ variant: 'destructive', title: 'Failed to save avatar' })
-    else { setAvatarUrl(publicUrl + '?t=' + Date.now()); toast({ title: 'Profile picture updated!' }) }
-    setUploadingAvatar(false)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/upload-avatar', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token}` },
+        body: fd
+      })
+      const json = await res.json()
+      if (!res.ok) { toast({ variant: 'destructive', title: 'Upload failed', description: json.error }); return }
+      const { error: updateError } = await supabase.auth.updateUser({ data: { avatar_url: json.publicUrl } })
+      if (updateError) toast({ variant: 'destructive', title: 'Failed to save avatar' })
+      else { setAvatarUrl(json.publicUrl + '?t=' + Date.now()); toast({ title: 'Profile picture updated!' }) }
+    } finally {
+      setUploadingAvatar(false)
+    }
   }
 
   const getDownloadUrl = (dl: DownloadItem) => {
@@ -337,7 +345,7 @@ export default function DashboardPage() {
                   <div className="text-center py-12">
                     <CreditCard className="w-12 h-12 mx-auto mb-4 text-slate-700" />
                     <p className="text-slate-500">No transactions found.</p>
-                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢</a>
+                    <a href="/billing" className="mt-3 inline-flex items-center gap-1 text-sm text-cyan-400 hover:text-cyan-300">View plans ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢</a>
                   </div>
                 ) : (
                   <div className="space-y-2">
