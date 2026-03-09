@@ -693,7 +693,6 @@ export default function AdminPage() {
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier])}>{p.tier}</span>
                           <div className="min-w-0">
-                            <p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days ? $`{p.duration_days}d` : 'lifetime'} / Sort: {p.sort_order}</p>
                             <p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days ? `${p.duration_days}d` : 'lifetime'} / Sort: {p.sort_order}</p>
 
                           </div>
