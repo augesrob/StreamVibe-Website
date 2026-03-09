@@ -8,10 +8,28 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Crown, Check, CreditCard, Loader2, CheckCircle2, ArrowRight, Calendar, Key, Sparkles } from 'lucide-react'
+import { Check, CreditCard, Loader2, CheckCircle2, ArrowRight, Calendar, Key, Sparkles, Zap, Star, Crown, Gift, Clock } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-interface Plan { id: string; name: string; price: number; duration_days: number; features: string[] }
+interface Plan {
+  id: string; name: string; tier: string; billing_interval: string
+  price: number; duration_days: number; features: string[]; custom_note: string | null
+}
 interface UserPlan { id: string; plan_id: string; expires_at: string | null; plans?: Plan }
+
+const INTERVALS = ['monthly', 'quarterly', 'yearly', 'lifetime'] as const
+const TIERS = ['free', 'basic', 'pro', 'legend'] as const
+type Interval = typeof INTERVALS[number]
+type Tier = typeof TIERS[number]
+
+const tierMeta = {
+  free:   { label: 'Free',   icon: Gift,  color: 'text-slate-400',  border: 'border-slate-700',  activeGlow: '' },
+  basic:  { label: 'Basic',  icon: Zap,   color: 'text-blue-400',   border: 'border-blue-800',   activeGlow: 'shadow-blue-900/30' },
+  pro:    { label: 'Pro',    icon: Star,  color: 'text-cyan-400',   border: 'border-cyan-700',   activeGlow: 'shadow-cyan-900/30' },
+  legend: { label: 'Legend', icon: Crown, color: 'text-purple-400', border: 'border-purple-700', activeGlow: 'shadow-purple-900/30' },
+}
+
+const intervalLabel: Record<Interval, string> = { monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', lifetime: 'Lifetime' }
 
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuth()
@@ -22,137 +40,182 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true)
   const [redeemCode, setRedeemCode] = useState('')
   const [redeeming, setRedeeming] = useState(false)
+  const [interval, setInterval] = useState<Interval>('monthly')
+  const [activeTier, setActiveTier] = useState<Tier>('free')
 
   useEffect(() => { if (!authLoading && !user) router.push('/login') }, [authLoading, user, router])
 
   useEffect(() => {
     if (!user) return
-    const fetchData = async () => {
-      const [{ data: planData }, { data: userPlanData }] = await Promise.all([
-        supabase.from('plans').select('*').order('price', { ascending: true }),
-        supabase.from('user_plans').select('*, plans(*)').eq('user_id', user.id)
-      ])
-      setPlans(planData || [])
-      setUserPlans(userPlanData || [])
+    Promise.all([
+      supabase.from('plans').select('*').order('sort_order'),
+      supabase.from('user_plans').select('*, plans(*)').eq('user_id', user.id),
+    ]).then(([{ data: pd }, { data: ud }]) => {
+      setPlans(pd || [])
+      setUserPlans(ud || [])
       setLoading(false)
-    }
-    fetchData()
+    })
   }, [user])
 
-  const handleRedeem = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleRedeem = async () => {
     if (!redeemCode.trim()) return
     setRedeeming(true)
     const { data, error } = await supabase.functions.invoke('redeem-license-key', { body: { key_code: redeemCode.trim() } })
     setRedeeming(false)
     if (error) toast({ variant: 'destructive', title: 'Error', description: error.message })
     else if (data?.success) { toast({ title: 'Key Redeemed!', description: data.message }); setRedeemCode('') }
-    else toast({ variant: 'destructive', title: 'Failed', description: data?.message || 'Invalid key' })
+    else toast({ variant: 'destructive', title: 'Invalid Key', description: data?.message || 'Could not redeem key.' })
   }
 
-  const getDaysRemaining = (expires: string | null) => {
-    if (!expires) return 'Lifetime'
-    const diff = new Date(expires).getTime() - Date.now()
-    return `${Math.max(0, Math.ceil(diff / 86400000))} days left`
+  const isOwned = (planId: string) =>
+    userPlans.some(up => up.plan_id === planId && (!up.expires_at || new Date(up.expires_at) > new Date()))
+
+  const getDaysLeft = (expires: string | null) => {
+    if (!expires) return 'Lifetime Access'
+    const days = Math.max(0, Math.ceil((new Date(expires).getTime() - Date.now()) / 86400000))
+    return `${days} days remaining`
   }
 
-  const isOwned = (planId: string) => userPlans.some(up => up.plan_id === planId && (!up.expires_at || new Date(up.expires_at) > new Date()))
+  const planFor = (tier: Tier) =>
+    tier === 'free' ? plans.find(p => p.tier === 'free') : plans.find(p => p.tier === tier && p.billing_interval === interval)
 
-  if (authLoading || loading) return <div className="min-h-screen pt-24 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>
+  if (authLoading || loading) return (
+    <div className="min-h-screen pt-24 flex items-center justify-center">
+      <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
+    </div>
+  )
 
   return (
-    <div className="min-h-screen pt-24 px-4 bg-[#0a0a0f] text-white pb-20">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen pt-24 px-4 bg-[#08080f] text-white pb-20">
+      <div className="max-w-6xl mx-auto space-y-10">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Billing &amp; Subscription</h1>
-          <p className="text-gray-400">Manage your plans and redeem license keys.</p>
+          <h1 className="text-3xl font-bold mb-1">Billing &amp; Plans</h1>
+          <p className="text-slate-400">Manage your subscription and redeem license keys.</p>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-            <Card className="bg-[#1a1a24] border-gray-800">
-              <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Sparkles className="w-5 h-5 text-cyan-400" /> Your Active Plans</CardTitle></CardHeader>
-              <CardContent>
-                {userPlans.length > 0 ? (
-                  <div className="space-y-3">
-                    {userPlans.map(plan => (
-                      <div key={plan.id} className="bg-[#12121a] p-4 rounded-lg border border-gray-800 flex justify-between items-center">
-                        <div>
-                          <h3 className="font-bold text-white">{plan.plans?.name || 'Unknown'}</h3>
-                          <div className="flex items-center gap-2 text-sm text-gray-400 mt-1">
-                            <Calendar className="w-3 h-3" /><span className="text-cyan-400">{getDaysRemaining(plan.expires_at)}</span>
-                          </div>
-                        </div>
-                        <Badge className="bg-green-900/50 text-green-400 border-green-800">Active</Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (<p className="text-center text-gray-400 py-6">No active plans yet.</p>)}
-              </CardContent>
-            </Card>
 
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Crown className="w-5 h-5 text-purple-500" /> Available Plans</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plans.map(plan => (
-                  <Card key={plan.id} className="bg-[#1a1a24] border-gray-800 text-white flex flex-col relative overflow-hidden">
-                    {isOwned(plan.id) && <div className="absolute top-0 right-0 bg-green-600 text-white text-[10px] font-bold px-2 py-0.5">OWNED</div>}
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <CardTitle className="text-lg">{plan.name}</CardTitle>
-                        <span className="text-cyan-400 font-bold">${plan.price}</span>
+        {/* Active Plans */}
+        {userPlans.length > 0 && (
+          <Card className="bg-[#12121e] border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white"><Sparkles className="w-5 h-5 text-cyan-400" />Your Active Plans</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {userPlans.map(up => (
+                  <div key={up.id} className="bg-[#0d0d1a] p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <div>
+                      <p className="font-bold text-white">{up.plans?.name || 'Unknown Plan'}</p>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                        <Clock className="w-3 h-3" />
+                        <span className="text-cyan-400">{getDaysLeft(up.expires_at)}</span>
                       </div>
-                      <CardDescription className="text-xs text-gray-500">{plan.duration_days} days access</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex-grow pb-2">
-                      <ul className="space-y-1">
-                        {Array.isArray(plan.features) && plan.features.map((f, i) => (
-                          <li key={i} className="text-xs text-gray-400 flex items-start gap-2">
-                            <CheckCircle2 className="w-3 h-3 text-cyan-500/50 shrink-0 mt-0.5" /><span>{f}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                    <CardFooter className="pt-4">
-                      {isOwned(plan.id) ? (
-                        <Button disabled className="w-full bg-green-900/20 text-green-500 border border-green-900/50"><Check className="w-4 h-4 mr-2" /> Plan Active</Button>
-                      ) : (
-                        <Button className="w-full bg-[#12121a] hover:bg-cyan-950 border border-gray-700 text-white hover:text-cyan-400 group" onClick={() => toast({ title: 'Payment', description: 'Payment integration coming soon!' })}>
-                          Purchase <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
-                        </Button>
-                      )}
-                    </CardFooter>
-                  </Card>
+                    </div>
+                    <Badge className="bg-green-900/50 text-green-400 border border-green-800">Active</Badge>
+                  </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Plans Grid */}
+        <div>
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Crown className="w-5 h-5 text-purple-400" />Available Plans</h2>
+
+          {/* Interval switcher */}
+          <div className="flex mb-6">
+            <div className="inline-flex bg-slate-900 border border-slate-800 rounded-xl p-1 gap-1">
+              {INTERVALS.map(iv => (
+                <button key={iv} onClick={() => setInterval(iv)}
+                  className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                    interval === iv ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  )}>
+                  {intervalLabel[iv]}
+                </button>
+              ))}
             </div>
-            <Card className="bg-[#1a1a24] border-gray-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-white"><CreditCard className="w-5 h-5 text-purple-400" /> Redeem License Key</CardTitle>
-                <CardDescription className="text-gray-400">Enter your license key or promotional code.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleRedeem} className="flex gap-4">
-                  <Input placeholder="XXXX-XXXX-XXXX-XXXX" value={redeemCode} onChange={e => setRedeemCode(e.target.value.toUpperCase())} className="bg-[#12121a] border-gray-700 font-mono tracking-widest text-white" />
-                  <Button type="submit" disabled={redeeming || !redeemCode} className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white min-w-[120px]">
-                    {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
           </div>
-          <div>
-            <Card className="bg-[#1a1a24] border-gray-800">
-              <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Key className="w-5 h-5 text-cyan-400" /> Quick Actions</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <a href="/dashboard" className="flex items-center justify-between p-3 bg-[#12121a] rounded-lg hover:bg-slate-800 transition-colors text-sm text-gray-300 hover:text-white">
-                  Go to Dashboard <ArrowRight className="w-4 h-4" />
-                </a>
-                <a href="/#pricing" className="flex items-center justify-between p-3 bg-[#12121a] rounded-lg hover:bg-slate-800 transition-colors text-sm text-gray-300 hover:text-white">
-                  View All Plans <ArrowRight className="w-4 h-4" />
-                </a>
-              </CardContent>
-            </Card>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {TIERS.map(tier => {
+              const plan = planFor(tier)
+              if (!plan) return null
+              const meta = tierMeta[tier]
+              const Icon = meta.icon
+              const owned = isOwned(plan.id)
+              return (
+                <Card key={tier} className={cn('flex flex-col bg-[#0d0d1a] border transition-all hover:-translate-y-0.5', meta.border, owned && 'ring-1 ring-green-700')}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={cn('inline-flex items-center gap-1 text-xs font-bold', meta.color)}>
+                        <Icon className="w-3.5 h-3.5" />{meta.label}
+                      </span>
+                      {owned && <Badge className="bg-green-900/50 text-green-400 border-green-800 text-[10px]">Owned</Badge>}
+                    </div>
+                    <p className="text-2xl font-extrabold text-white">{plan.price === 0 ? 'Free' : `$${plan.price}`}</p>
+                    <p className="text-xs text-slate-500">
+                      {plan.price === 0 ? 'No card needed' : plan.billing_interval === 'lifetime' ? 'one-time' : `/${plan.billing_interval === 'monthly' ? 'mo' : plan.billing_interval === 'quarterly' ? 'qtr' : 'yr'}`}
+                    </p>
+                    {plan.custom_note && <p className={cn('text-xs font-medium mt-1', meta.color)}>{plan.custom_note}</p>}
+                  </CardHeader>
+                  <CardContent className="flex-grow pb-3">
+                    <ul className="space-y-2">
+                      {Array.isArray(plan.features) && plan.features.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                          <CheckCircle2 className={cn('w-3.5 h-3.5 shrink-0 mt-0.5', meta.color)} />{f}
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                  <CardFooter>
+                    {owned ? (
+                      <Button disabled className="w-full text-xs bg-green-900/20 text-green-500 border border-green-900">
+                        <Check className="w-3 h-3 mr-1" />Active
+                      </Button>
+                    ) : (
+                      <Button className="w-full text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white group"
+                        onClick={() => toast({ title: 'Coming Soon', description: 'Payment integration coming soon!' })}>
+                        Purchase <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              )
+            })}
           </div>
+        </div>
+
+        {/* Redeem Key */}
+        <Card className="bg-[#12121e] border-slate-800">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white"><Key className="w-5 h-5 text-purple-400" />Redeem License Key</CardTitle>
+            <CardDescription className="text-slate-400">Enter a license key you received to activate a plan.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input
+                placeholder="SV-XXXX-XXXX-XXXX-XXXX"
+                value={redeemCode}
+                onChange={e => setRedeemCode(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === 'Enter' && handleRedeem()}
+                className="bg-[#0d0d1a] border-slate-700 font-mono tracking-widest text-white flex-1"
+              />
+              <Button onClick={handleRedeem} disabled={redeeming || !redeemCode.trim()}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white min-w-28 font-bold">
+                {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quick links */}
+        <div className="flex gap-4 text-sm">
+          <a href="/dashboard" className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
+            <ArrowRight className="w-3.5 h-3.5" />Dashboard
+          </a>
+          <a href="/#pricing" className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
+            <ArrowRight className="w-3.5 h-3.5" />Compare Plans
+          </a>
         </div>
       </div>
     </div>
