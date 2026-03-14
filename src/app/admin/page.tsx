@@ -616,8 +616,8 @@ export default function AdminPage() {
                 <div className="flex flex-wrap gap-4 items-end">
                   <div><label className="text-xs text-slate-400 mb-1 block">Quantity (max 50)</label><Input type="number" min={1} max={50} value={genCount} onChange={e => setGenCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} className="w-24 bg-[#0d0d1a] border-slate-700 text-white" /></div>
                   <div className="flex-1 min-w-48"><label className="text-xs text-slate-400 mb-1 block">Assign to Plan (optional)</label>
-                      <option value="">Grant a plan...</option>{plans.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
-                      <option value="">Grant a plan...</option>{plans.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
+                    <select value={genPlanId} onChange={e => setGenPlanId(e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#0d0d1a] text-white text-sm">
+                      <option value="">No plan (unassigned)</option>{plans.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
                     </select>
                   </div>
                   <Button onClick={generateKeys} disabled={generating} className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white font-bold min-w-36">
@@ -783,7 +783,7 @@ export default function AdminPage() {
                       <tbody className="divide-y divide-slate-800/50">
                         {filteredPaypal.map(o => (
                           <tr key={o.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 pr-4 text-white text-xs">{(o.plans as any)?.name || 'Unknown Plan'}</td>
+                            <td className="py-3 pr-4 font-mono text-xs text-slate-400">{o.order_id.slice(0, 12)}…</td>
                             <td className="py-3 pr-4 text-white text-xs">{(o.plans as any)?.name || 'Unknown Plan'}</td>
                             <td className="py-3 pr-4 hidden md:table-cell"><div className="text-xs"><p className="text-white">{o.payer_name || 'N/A'}</p><p className="text-slate-500">{o.payer_email || ''}</p></div></td>
                             <td className="py-3 pr-4 hidden sm:table-cell text-xs text-slate-400">{(o as any).profiles?.username || 'Unknown'}</td>
