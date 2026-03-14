@@ -429,9 +429,13 @@ export default function AdminPage() {
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true)
-    const { data } = await supabase.from('license_keys').select('*').order('created_at', { ascending: false }).limit(200)
-    setKeys(data || []); setLoadingKeys(false)
-  }, [])
+    const res = await adminFetch('/api/admin/all-keys', 'GET', null, authToken)
+    if (res.ok) {
+      const d = await res.json()
+      setKeys(d.keys || [])
+    }
+    setLoadingKeys(false)
+  }, [authToken])
 
   const loadPlans = useCallback(async () => {
     const { data } = await supabase.from('plans').select('*').order('sort_order')
