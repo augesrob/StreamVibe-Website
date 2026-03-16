@@ -1,17 +1,16 @@
-import { Inter } from "next/font/google";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const supabase = createServerComponentClient({ cookies });
+  const { data: { session } } = await supabase.auth.getSession();
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        {children} {/* NO Navbar or Footer here! */}
+      <body>
+        {/* If you have a SessionProvider component, wrap {children} here */}
+        {children}
       </body>
     </html>
   );
