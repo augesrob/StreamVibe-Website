@@ -34,6 +34,28 @@ const DEFAULT_STATE: OverlayState = {
 const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32']
 const MEDAL_EMOJI  = ['🥇', '🥈', '🥉']
 
+const THEME_BG: Record<string, string> = {
+  dark:        'linear-gradient(160deg, rgba(10,11,20,0.95) 0%, rgba(18,18,35,0.95) 100%)',
+  gradient:    'linear-gradient(160deg, rgba(88,28,220,0.92) 0%, rgba(30,60,180,0.92) 50%, rgba(20,120,200,0.92) 100%)',
+  neon:        'linear-gradient(160deg, rgba(0,20,8,0.95) 0%, rgba(0,30,10,0.95) 100%)',
+  red:         'linear-gradient(160deg, rgba(120,10,10,0.92) 0%, rgba(80,0,0,0.92) 100%)',
+  blue:        'linear-gradient(160deg, rgba(10,30,100,0.92) 0%, rgba(10,20,80,0.92) 100%)',
+  green:       'linear-gradient(160deg, rgba(10,60,20,0.92) 0%, rgba(5,40,10,0.92) 100%)',
+  cyber:       'linear-gradient(160deg, rgba(0,100,120,0.88) 0%, rgba(0,140,80,0.88) 100%)',
+  fire:        'linear-gradient(160deg, rgba(180,60,0,0.92) 0%, rgba(200,140,0,0.88) 100%)',
+  aurora:      'linear-gradient(160deg, rgba(100,20,180,0.88) 0%, rgba(20,140,180,0.88) 100%)',
+  rainbow:     'linear-gradient(135deg, rgba(200,0,120,0.85), rgba(200,160,0,0.8), rgba(0,150,200,0.85))',
+  pulse:       'linear-gradient(160deg, rgba(100,0,180,0.92) 0%, rgba(60,0,120,0.92) 100%)',
+  matrix:      'linear-gradient(160deg, rgba(0,20,5,0.95) 0%, rgba(0,30,8,0.95) 100%)',
+  transparent: 'rgba(0,0,0,0.35)',
+}
+
+const THEME_BORDER: Record<string, string> = {
+  neon:   '1px solid rgba(0,230,118,0.4)',
+  matrix: '1px solid rgba(0,200,80,0.4)',
+  default: '1px solid rgba(255,255,255,0.12)',
+}
+
 export default function OverlayInner() {
   useEffect(() => {
     document.body.style.background = 'transparent'
@@ -109,7 +131,7 @@ export default function OverlayInner() {
 }
 
 function AuctionWidget({ state, newLeader }: { state: OverlayState; newLeader: string | null }) {
-  const { phase, remaining, snipeDelay, leader, minCoins } = state
+  const { phase, remaining, snipeDelay, leader, minCoins, theme } = state
   const bids: BidEntry[] = state.bids ?? []
   const isSnipe   = phase === 'snipe'
   const isRunning = phase === 'running' || phase === 'snipe'
@@ -157,10 +179,10 @@ function AuctionWidget({ state, newLeader }: { state: OverlayState; newLeader: s
         width: 'min(320px, 28vw)',
         borderRadius: 20,
         overflow: 'hidden',
-        background: 'linear-gradient(160deg, rgba(88,28,220,0.92) 0%, rgba(30,60,180,0.92) 50%, rgba(20,120,200,0.92) 100%)',
+        background: THEME_BG[theme] ?? THEME_BG['gradient'],
         boxShadow: '0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.12)',
         backdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255,255,255,0.12)',
+        border: THEME_BORDER[theme] ?? THEME_BORDER['default'],
         fontFamily: '"Inter", "Segoe UI", sans-serif',
       }}>
 
