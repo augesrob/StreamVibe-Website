@@ -269,7 +269,7 @@ export default function DashboardPage() {
             </div>
           </TabsContent>
 
-          {/* DOWNLOADS */
+          {/* DOWNLOADS */}
           <TabsContent value="downloads">
             <Card className="bg-[#12121e] border-slate-800 text-white">
               <CardHeader>
