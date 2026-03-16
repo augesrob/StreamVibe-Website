@@ -1,6 +1,6 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
-import "./globals.css";
+import "@/app/globals.css";
 
 export default async function RootLayout({
   children,
