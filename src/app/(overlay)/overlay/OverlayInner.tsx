@@ -118,7 +118,7 @@ export default function OverlayInner() {
     remaining <= snipeDelay && remaining > 0 ? 'text-yellow-400' : 'text-white'
 
   return (
-    <div className="fixed inset-0 overflow-hidden" style={{ width: 1920, height: 1080, background: 'transparent' }}>
+    <div className="fixed inset-0 overflow-hidden" style={{ background: 'transparent' }}>
       {newLeader && (
         <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50 animate-in zoom-in-50 fade-in duration-300
           bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-black font-mono tracking-widest
@@ -127,7 +127,7 @@ export default function OverlayInner() {
           <div className="text-base font-bold opacity-80 mt-1">{newLeader}</div>
         </div>
       )}
-      <div className="absolute bottom-10 left-10 w-[400px]">
+      <div className="absolute bottom-[3vh] left-[2vw]" style={{ width: 'min(400px, 35vw)' }}>
         <div className={`rounded-2xl border border-white/10 backdrop-blur-xl p-5 ${themeClass}`}>
           <div className="flex items-start justify-between mb-2">
             <div>
