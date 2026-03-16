@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/contexts/AuthContext'
-import Header from '@/components/layout/Header'
-import Footer from '@/components/layout/Footer'
 import { Toaster } from '@/components/ui/toaster'
 
 export const metadata: Metadata = {
@@ -15,12 +13,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <AuthProvider>
-          <div className="min-h-screen bg-slate-950 flex flex-col">
-            <Header />
-            <main className="flex-grow">{children}</main>
-            <Footer />
-            <Toaster />
-          </div>
+          {children}
+          <Toaster />
         </AuthProvider>
       </body>
     </html>
