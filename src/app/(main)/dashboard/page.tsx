@@ -427,6 +427,29 @@ export default function DashboardPage() {
                             </div>
                             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium shrink-0', k.status === 'active' ? 'bg-green-900/40 text-green-400' : 'bg-slate-800 text-slate-400')}>{k.status}</span>
                           </div>
+                          <div className="flex flex-wrap gap-x-6 gap-y-1 mb-3 text-xs text-slate-400">
+                            {k.plans && (
+                              <span className="flex items-center gap-1">
+                                <Key className="w-3 h-3" />
+                                <span className="text-slate-500">Plan:</span>
+                                <span className={cn("font-semibold", tierColors[k.plans.tier] || "text-slate-300")}>{k.plans.name}</span>
+                              </span>
+                            )}
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              <span className="text-slate-500">Expires:</span>
+                              <span className={cn("font-semibold", k.expires_at && new Date(k.expires_at) < new Date() ? "text-red-400" : "text-slate-300")}>
+                                {k.expires_at ? new Date(k.expires_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Never"}
+                              </span>
+                            </span>
+                            {k.redeemed_at && (
+                              <span className="flex items-center gap-1">
+                                <Zap className="w-3 h-3" />
+                                <span className="text-slate-500">Activated:</span>
+                                <span className="text-slate-300">{new Date(k.redeemed_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                              </span>
+                            )}
+                          </div>
                           <div className="mb-3">
                             <div className="flex justify-between text-xs text-slate-400 mb-1">
                               <span className="flex items-center gap-1"><Monitor className="w-3 h-3" />Devices used</span>
