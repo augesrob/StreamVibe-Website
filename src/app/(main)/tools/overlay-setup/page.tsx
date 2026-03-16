@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClient } from '@supabase/supabase-js'
@@ -30,54 +30,73 @@ const THEMES = [
 export default function OverlaySetupPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
-  const [overlayToken, setOverlayToken]   = useState<string | null>(null)
-  const [hasAccess, setHasAccess]         = useState<boolean | null>(null)
-  const [selected, setSelected]           = useState('dark')
-  const [opacity, setOpacity]             = useState(85)
-  const [showUrl, setShowUrl]             = useState(false)
-  const [copied, setCopied]               = useState(false)
+  const [overlayToken, setOverlayToken] = useState<string | null>(null)
+  const [userId, setUserId]             = useState<string | null>(null)
+  const [hasAccess, setHasAccess]       = useState<boolean | null>(null)
+  const [selected, setSelected]         = useState('dark')
+  const [opacity, setOpacity]           = useState(85)
+  const [showUrl, setShowUrl]           = useState(false)
+  const [copied, setCopied]             = useState(false)
+  const [saved, setSaved]               = useState(false)
+  const channelRef                      = useRef<any>(null)
 
-  // Check plan + fetch token
   useEffect(() => {
     if (!user) return
     const check = async () => {
       const { data: plans } = await supabase
-        .from('user_plans')
-        .select('plans(tier)')
-        .eq('user_id', user.id)
-
+        .from('user_plans').select('plans(tier)').eq('user_id', user.id)
       const highest = (plans || []).reduce((best: string, up: any) => {
         const t = up.plans?.tier || 'free'
         return (TIER_RANK[t] || 0) > (TIER_RANK[best] || 0) ? t : best
       }, 'free')
-
-      if (TIER_RANK[highest] < TIER_RANK['basic']) {
-        setHasAccess(false); return
-      }
+      if (TIER_RANK[highest] < TIER_RANK['basic']) { setHasAccess(false); return }
       setHasAccess(true)
-
+      setUserId(user.id)
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('overlay_token')
-        .eq('id', user.id)
-        .single()
-
+        .from('profiles').select('overlay_token').eq('id', user.id).single()
       setOverlayToken(profile?.overlay_token || null)
     }
     check()
   }, [user])
 
-  const overlayUrl = overlayToken
-    ? `${typeof window !== 'undefined' ? window.location.origin : 'https://streamvibe.nl'}/overlay?token=${overlayToken}`
-    : 'Loading...'
+  // Set up Realtime channel once we have userId
+  useEffect(() => {
+    if (!userId) return
+    const ch = supabase.channel(`overlay:${userId}`)
+    channelRef.current = ch
+    ch.subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [userId])
+
+  const broadcastTheme = (theme: string, op: number) => {
+    if (!channelRef.current || !userId) return
+    // Merge with any existing localStorage state so auction data is preserved
+    let existing: any = {}
+    try {
+      const raw = localStorage.getItem('sv_auction_overlay_state')
+      if (raw) existing = JSON.parse(raw)
+    } catch (_) {}
+    const payload = { ...existing, theme, opacity: op / 100 }
+    channelRef.current.send({ type: 'broadcast', event: 'state', payload })
+    // Also update localStorage for same-browser fallback
+    try { localStorage.setItem('sv_auction_overlay_state', JSON.stringify(payload)) } catch (_) {}
+  }
 
   const applyTheme = (id: string) => {
     setSelected(id)
-    try {
-      const raw = localStorage.getItem('sv_auction_overlay_state')
-      if (raw) localStorage.setItem('sv_auction_overlay_state', JSON.stringify({ ...JSON.parse(raw), theme: id }))
-    } catch (_) {}
+    broadcastTheme(id, opacity)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
+
+  const applyOpacity = (op: number) => {
+    setOpacity(op)
+    broadcastTheme(selected, op)
+  }
+
+  const overlayUrl = overlayToken
+    ? `${typeof window !== 'undefined' ? window.location.origin : 'https://streamvibe.nl'}/overlay?token=${overlayToken}`
+    : 'Loading...'
 
   const copyUrl = () => {
     navigator.clipboard.writeText(overlayUrl).then(() => {
@@ -90,17 +109,13 @@ export default function OverlaySetupPage() {
       <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
     </div>
   )
-
   if (!user) { router.push('/login'); return null }
-
   if (!hasAccess) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0b14] text-white text-center p-8">
       <div className="text-5xl mb-4">🔒</div>
       <h2 className="text-2xl font-black font-mono mb-2">Basic Plan Required</h2>
       <p className="text-gray-400 mb-6">The overlay tool requires a Basic plan or above.</p>
-      <a href="/billing" className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl">
-        View Plans
-      </a>
+      <a href="/billing" className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl">View Plans</a>
     </div>
   )
 
@@ -115,9 +130,9 @@ export default function OverlaySetupPage() {
       </div>
 
       {/* URL bar */}
-      <div className="flex items-center gap-3 bg-[#10121f] border border-[#1e2240] rounded-xl px-4 py-3 mb-3">
+      <div className="flex items-center gap-3 bg-[#10121f] border border-[#1e2240] rounded-xl px-4 py-3 mb-3 flex-wrap gap-y-2">
         <input type={showUrl ? 'text' : 'password'} readOnly value={overlayUrl}
-          className="flex-1 bg-transparent border-none outline-none text-gray-400 font-mono text-sm" />
+          className="flex-1 min-w-0 bg-transparent border-none outline-none text-gray-400 font-mono text-sm" />
         <button onClick={() => setShowUrl(v => !v)}
           className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-cyan-700 text-black font-mono font-bold text-xs shrink-0">
           👁 {showUrl ? 'Hide' : 'Show'}
@@ -126,33 +141,37 @@ export default function OverlaySetupPage() {
           className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-700 to-red-800 text-white font-mono font-bold text-xs shrink-0 disabled:opacity-40">
           {copied ? '✓ Copied!' : '📋 Copy'}
         </button>
-        <button onClick={() => window.open('/overlay?token=' + overlayToken, '_blank')}
+        <button onClick={() => overlayToken && window.open('/overlay?token=' + overlayToken, '_blank')}
           disabled={!overlayToken}
           className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-700 to-pink-900 text-white font-mono font-bold text-xs shrink-0 disabled:opacity-40">
           🖥 Preview
         </button>
       </div>
 
-      {/* Warning */}
-      <div className="bg-red-950/20 border border-red-800/40 rounded-xl px-4 py-3 mb-3 text-red-300 text-sm">
-        <strong className="text-red-500">⚠ SECURITY:</strong> This URL is unique to your account.{' '}
-        <strong>Never share it.</strong> Anyone with it can view your overlay stream data.
-      </div>
+      {!overlayToken && (
+        <div className="bg-yellow-950/20 border border-yellow-800/40 rounded-xl px-4 py-3 mb-3 text-yellow-300 text-sm">
+          ⚠ Token not found. Run the SQL migration in your Supabase SQL Editor to generate your unique overlay URL.
+        </div>
+      )}
 
-      {/* Setup note */}
+      <div className="bg-red-950/20 border border-red-800/40 rounded-xl px-4 py-3 mb-3 text-red-300 text-sm">
+        <strong className="text-red-500">⚠ SECURITY:</strong> This URL is unique to your account. <strong>Never share it.</strong>
+      </div>
       <div className="bg-black/30 border border-[#1e2240] rounded-xl px-4 py-3 mb-8 text-gray-500 text-sm">
-        <strong className="text-gray-400">Setup:</strong> TikTok Live Studio → Add Source → Web Source → Paste URL → Size:{' '}
-        <span className="text-cyan-500 font-mono">1920 × 1080</span>
+        <strong className="text-gray-400">Setup:</strong> TikTok Live Studio → Add Source → Web Source → Paste URL → Size: <span className="text-cyan-500 font-mono">1920 × 1080</span>
       </div>
 
       {/* Theme picker */}
-      <h2 className="text-cyan-400 font-mono font-bold text-sm tracking-widest uppercase mb-2">🎨 Overlay Theme</h2>
-      <p className="text-gray-500 text-sm mb-4">Choose a style for your stream overlay:</p>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-cyan-400 font-mono font-bold text-sm tracking-widest uppercase">🎨 Overlay Theme</h2>
+        {saved && <span className="text-green-400 text-xs font-bold animate-in fade-in duration-200">✓ Applied to overlay!</span>}
+      </div>
+      <p className="text-gray-500 text-sm mb-4">Click a theme — changes apply instantly to your live overlay:</p>
       <div className="grid grid-cols-7 gap-3 mb-6">
         {THEMES.map(t => (
           <button key={t.id} onClick={() => applyTheme(t.id)}
             className={`flex flex-col items-center rounded-xl border-2 overflow-hidden transition-all hover:scale-105 ${
-              selected === t.id ? 'border-cyan-500 shadow-[0_0_14px_rgba(0,229,255,0.35)]' : 'border-transparent'
+              selected === t.id ? 'border-cyan-500 shadow-[0_0_14px_rgba(0,229,255,0.35)]' : 'border-transparent hover:border-white/20'
             }`}>
             <div className={`w-full aspect-video rounded-t-lg ${t.cls || 'bg-[repeating-conic-gradient(#888_0%_25%,#555_0%_50%)] bg-[length:16px_16px]'}`} />
             <div className="text-[11px] text-gray-400 py-1 font-semibold bg-[#10121f] w-full text-center">
@@ -168,13 +187,13 @@ export default function OverlaySetupPage() {
           Background Opacity: <span className="text-cyan-400 font-mono font-bold">{opacity}%</span>
         </span>
         <input type="range" min={10} max={100} value={opacity}
-          onChange={e => { setOpacity(+e.target.value); applyTheme(selected) }}
+          onChange={e => applyOpacity(+e.target.value)}
           className="flex-1 accent-cyan-500" />
       </div>
 
       <div className="flex items-center gap-2 text-green-400 text-sm font-semibold">
         <div className="w-2.5 h-2.5 rounded-full bg-green-400 shadow-[0_0_8px_#00e676]" />
-        Theme changes apply instantly to your live overlay!
+        Theme changes broadcast live via Supabase Realtime — no refresh needed
       </div>
     </div>
   )
