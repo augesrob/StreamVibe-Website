@@ -83,9 +83,10 @@ export default function AuctionPage() {
         phase: engine.phase, remaining: engine.remaining,
         snipeDelay: engine.snipeDelay, leader: engine.leader,
         minCoins: engine.minCoins, theme: engine.theme,
+        bids: engine.bids.slice(0, 50),
       }
     })
-  }, [engine.phase, engine.remaining, engine.snipeDelay, engine.leader, engine.minCoins, engine.theme, user])
+  }, [engine.phase, engine.remaining, engine.snipeDelay, engine.leader, engine.minCoins, engine.theme, engine.bids, user])
 
   // Sync state to localStorage so /overlay can poll it
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function AuctionPage() {
         phase: engine.phase, remaining: engine.remaining,
         snipeDelay: engine.snipeDelay, leader: engine.leader,
         minCoins: engine.minCoins, theme: engine.theme,
+        bids: engine.bids.slice(0, 50),
       }))
     } catch (_) {}
   }, [engine.phase, engine.remaining, engine.snipeDelay, engine.leader, engine.minCoins, engine.theme])
