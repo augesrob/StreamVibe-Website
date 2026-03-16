@@ -100,43 +100,70 @@ export default function AuctionPage() {
     } catch (_) {}
   }, [engine.phase, engine.remaining, engine.snipeDelay, engine.leader, engine.minCoins, engine.theme])
 
+  const BRIDGE_URL = 'wss://streamvibe-bridge-production.up.railway.app'
+
   const disconnect = useCallback(() => {
-    if (wsRef.current) { try { wsRef.current.close() } catch(_) {} wsRef.current = null }
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'disconnect_tiktok' }))
+        wsRef.current.close()
+      } catch(_) {}
+      wsRef.current = null
+    }
     setConnStatus('disconnected')
+    setConnUser('')
   }, [])
 
-  const connect = useCallback(async (username: string) => {
+  const connect = useCallback((username: string) => {
     disconnect()
-    setConnUser(username.replace('@','').trim())
+    const clean = username.replace('@', '').trim()
+    if (!clean) return
+    setConnUser(clean)
     setConnStatus('connecting')
     setConnError(null)
-    try {
-      // Try relay; fall back to demo mode gracefully
-      const res = await fetch(`/api/tiktok-relay?username=${encodeURIComponent(username.replace('@',''))}`)
-      if (!res.ok) throw new Error('relay_unavailable')
-      const { wsUrl } = await res.json()
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-      ws.onopen  = () => setConnStatus('connected')
-      ws.onclose = () => setConnStatus('disconnected')
-      ws.onerror = () => { setConnStatus('error'); setConnError('Connection failed. Running in demo mode.') }
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data)
-          if (msg.type === 'gift') {
-            const giftType  = msg.data?.giftDetails?.giftType ?? 0
-            const repeatEnd = msg.data?.repeatEnd ?? 1
-            if (giftType === 1 && repeatEnd === 0) return
-            const diamonds = msg.data?.giftDetails?.diamondCount ?? 0
-            const count    = Math.max(1, msg.data?.repeatCount ?? 1)
-            const user     = msg.data?.user?.uniqueId ?? 'unknown'
-            if (diamonds > 0) engine.processBid(user, diamonds * count)
-          }
-        } catch(_) {}
-      }
-    } catch(_) {
-      setConnStatus('connected') // demo mode
-      setConnError('Demo mode — relay not yet deployed. Real gifts disabled.')
+
+    const ws = new WebSocket(BRIDGE_URL)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'connect_tiktok', username: clean }))
+    }
+
+    ws.onclose = () => {
+      setConnStatus('disconnected')
+    }
+
+    ws.onerror = () => {
+      setConnStatus('error')
+      setConnError('Could not reach StreamVibe Bridge. Check your connection.')
+    }
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        switch (msg.type) {
+          case 'tiktok_connected':
+            setConnStatus('connected')
+            setConnError(null)
+            break
+          case 'not_live':
+            setConnError(`@${clean} is not currently live. Will retry every 30s automatically.`)
+            setConnStatus('connecting')
+            break
+          case 'tiktok_disconnected':
+            setConnStatus('disconnected')
+            break
+          case 'gift':
+            // Skip mid-streak gifts (repeatEnd=false means streak still going)
+            if (msg.repeatEnd === false) return
+            const coins = (msg.coins || 0) * Math.max(1, msg.repeatCount || 1)
+            if (coins > 0) engine.processBid(msg.username || 'unknown', coins)
+            break
+          case 'error':
+            setConnError(msg.message || 'Bridge error')
+            break
+        }
+      } catch(_) {}
     }
   }, [disconnect, engine])
 
@@ -155,9 +182,15 @@ export default function AuctionPage() {
 
   const statusDot: Record<string, string> = {
     disconnected: 'bg-gray-600',
-    connecting:   'bg-orange-500 animate-pulse',
+    connecting:   'bg-orange-400 animate-pulse',
     connected:    'bg-green-500 shadow-[0_0_8px_#00e676]',
     error:        'bg-red-500',
+  }
+  const statusLabel: Record<string, string> = {
+    disconnected: '♪  CONNECT MY LIVE',
+    connecting:   'WAITING FOR LIVE…',
+    connected:    `CONNECTED (@${connUser}) — Click to Disconnect`,
+    error:        'CONNECTION ERROR — RETRY',
   }
 
   const phaseStyle: Record<string, string> = {
@@ -317,7 +350,7 @@ export default function AuctionPage() {
                 : 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-black shadow-lg shadow-cyan-500/20'
             }`}>
             <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot[connStatus]}`} />
-            {connStatus === 'connected' ? `CONNECTED (@${connUser}) — Click to Disconnect`
+            {statusLabel[connStatus] || '♪  CONNECT MY LIVE'}) — Click to Disconnect`
               : connStatus === 'connecting' ? 'CONNECTING…' : '♪  CONNECT MY LIVE'}
           </button>
           {connStatus !== 'connected' && (
