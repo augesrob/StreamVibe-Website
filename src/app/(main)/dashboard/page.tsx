@@ -19,7 +19,9 @@ interface UserPlan {
 }
 interface UserKey {
   id: string; key_code: string; status: string
-  hwid_device_count: number; hwid_locked: boolean; max_devices: number; expires_at: string | null
+  hwid_device_count: number; hwid_locked: boolean; max_devices: number
+  expires_at: string | null; redeemed_at: string | null
+  plans?: { name: string; tier: string } | null
 }
 interface DownloadItem {
   id: string; name: string; description: string; version: string; tier: string
@@ -71,6 +73,8 @@ export default function DashboardPage() {
       .then(({ data }) => { setUserPlans(data || []); setLoadingPlans(false) })
     supabase.from('downloads').select('*').eq('is_active', true).order('sort_order')
       .then(({ data }) => { setDownloads(data || []); setLoadingDownloads(false) })
+    // Auto-load keys so devices tab works immediately
+    setTimeout(() => loadUserKeys(), 100)
   }, [user])
 
   const highestTier = userPlans.reduce((best, up) => {
@@ -81,9 +85,19 @@ export default function DashboardPage() {
   const loadUserKeys = async () => {
     if (!user) return
     setLoadingKeys(true)
-    const { data } = await supabase.from('license_keys').select('id, key_code, status, hwid_device_count, hwid_locked, max_devices, expires_at').eq('user_id', user.id)
-    setUserKeys(data || [])
-    setLoadingKeys(false)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { setLoadingKeys(false); return }
+      const res = await fetch('/api/my-keys', {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+      const d = await res.json()
+      setUserKeys(d.keys || [])
+    } catch {
+      setUserKeys([])
+    } finally {
+      setLoadingKeys(false)
+    }
   }
 
   const loadBillingHistory = async () => {
