@@ -1,18 +1,18 @@
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import "./globals.css";
 
-export default function MainLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const supabase = createServerComponentClient({ cookies });
+  await supabase.auth.getSession();
+
   return (
-    <>
-      <Header />
-      <main className="min-h-screen bg-[#050510]">
-        {children}
-      </main>
-      <Footer />
-    </>
+    <html lang="en">
+      <body>{children}</body>
+    </html>
   );
 }
