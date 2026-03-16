@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies } // Pass the function directly, do not call it
+      { cookies: cookies as any } // The "as any" bypasses the type mismatch
     )
     await supabase.auth.exchangeCodeForSession(code)
   }
