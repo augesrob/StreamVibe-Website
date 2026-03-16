@@ -253,9 +253,16 @@ export default function AuctionPage() {
       {/* CENTER */}
       <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
         <div className="flex gap-2">
-          <button onClick={() => { const url = overlayToken ? '/overlay?token='+overlayToken : '/overlay'; window.open(url,'_blank') }}
+          <button onClick={() => {
+              if (overlayToken) {
+                window.open('/overlay?token=' + overlayToken, '_blank')
+              } else {
+                router.push('/tools/overlay-setup')
+              }
+            }}
+            title={overlayToken ? 'Open overlay preview' : 'Run SQL migration first — go to Overlay Setup'}
             className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400 hover:border-cyan-600 hover:text-cyan-400 font-mono text-xs font-bold tracking-widest transition-all">
-            🖥 Overlay Preview
+            {overlayToken ? '🖥 Overlay Preview' : '⚙️ Overlay Setup →'}
           </button>
           <button onClick={() => router.push('/tools/overlay-setup')}
             className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400 hover:border-purple-600 hover:text-purple-400 font-mono text-xs font-bold tracking-widest transition-all">
