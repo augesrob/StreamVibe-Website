@@ -398,23 +398,30 @@ export default function DashboardPage() {
                         <div key={k.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 p-4">
                           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="font-mono text-sm text-white tracking-wider truncate">
-                                {revealedKeys.has(k.id) ? k.key_code : k.key_code.replace(/[A-Z0-9]/g, 'â€¢')}
-                              </span>
-                              <button
-                                onClick={() => setRevealedKeys(prev => { const s = new Set(prev); s.has(k.id) ? s.delete(k.id) : s.add(k.id); return s })}
-                                className="shrink-0 text-slate-400 hover:text-cyan-400 transition-colors p-1 rounded"
-                                title={revealedKeys.has(k.id) ? 'Hide key' : 'Reveal key'}
-                              >
-                                {revealedKeys.has(k.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                              </button>
-                              {revealedKeys.has(k.id) && (
+                              {revealedKeys.has(k.id) ? (
+                                <>
+                                  <span className="font-mono text-sm text-white tracking-wider truncate">{k.key_code}</span>
+                                  <button
+                                    onClick={async () => { await navigator.clipboard.writeText(k.key_code); setCopiedKey(k.id); setTimeout(() => setCopiedKey(null), 2000) }}
+                                    className="shrink-0 text-slate-400 hover:text-green-400 transition-colors p-1 rounded"
+                                    title="Copy key"
+                                  >
+                                    {copiedKey === k.id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                                  </button>
+                                  <button
+                                    onClick={() => setRevealedKeys(prev => { const s = new Set(prev); s.delete(k.id); return s })}
+                                    className="shrink-0 text-slate-500 hover:text-slate-300 transition-colors p-1 rounded"
+                                    title="Hide"
+                                  >
+                                    <EyeOff className="w-4 h-4" />
+                                  </button>
+                                </>
+                              ) : (
                                 <button
-                                  onClick={async () => { await navigator.clipboard.writeText(k.key_code); setCopiedKey(k.id); setTimeout(() => setCopiedKey(null), 2000) }}
-                                  className="shrink-0 text-slate-400 hover:text-green-400 transition-colors p-1 rounded"
-                                  title="Copy key"
+                                  onClick={() => setRevealedKeys(prev => { const s = new Set(prev); s.add(k.id); return s })}
+                                  className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-cyan-400 transition-colors border border-dashed border-slate-700 hover:border-cyan-700 rounded-lg px-3 py-1.5"
                                 >
-                                  {copiedKey === k.id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                                  <Eye className="w-3 h-3" />Click to reveal
                                 </button>
                               )}
                             </div>
