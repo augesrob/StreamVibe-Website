@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
-import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift, Monitor, RotateCcw, AlertTriangle, CreditCard, Camera, Lock, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { LayoutDashboard, Settings, Download, Loader2, Crown, Key, Calendar, Zap, Star, Gift, Monitor, RotateCcw, AlertTriangle, CreditCard, Camera, Lock, Eye, EyeOff, Copy, Check, Wrench, Layers, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface UserPlan {
@@ -162,6 +162,7 @@ export default function DashboardPage() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="bg-[#12121e] border border-slate-800 p-1 h-auto gap-1 flex-wrap">
             <TabsTrigger value="overview" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300"><LayoutDashboard className="w-4 h-4 mr-2" />Overview</TabsTrigger>
+            <TabsTrigger value="tools" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300"><Wrench className="w-4 h-4 mr-2" />Tools</TabsTrigger>
             <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300"><Download className="w-4 h-4 mr-2" />Downloads</TabsTrigger>
             <TabsTrigger value="devices" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300" onClick={() => { if (userKeys.length === 0 && !loadingKeys) loadUserKeys() }}><Monitor className="w-4 h-4 mr-2" />My Devices</TabsTrigger>
             <TabsTrigger value="billing" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300" onClick={() => { if (billingHistory.length === 0 && !loadingBilling) loadBillingHistory() }}><CreditCard className="w-4 h-4 mr-2" />Billing</TabsTrigger>
@@ -232,7 +233,43 @@ export default function DashboardPage() {
             </div>
           </TabsContent>
 
-          {/* DOWNLOADS */}
+
+          {/* TOOLS */}
+          <TabsContent value="tools">
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold text-white mb-1">StreamVibe Tools</h2>
+              <p className="text-slate-400 mb-6">Live stream tools to grow your TikTok audience.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <a href="/tools/auction" className="group bg-[#12121e] border border-slate-800 rounded-xl p-5 hover:border-cyan-700 transition-all flex flex-col gap-3">
+                  <div className="flex items-start justify-between">
+                    <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                      <Wrench className="w-6 h-6 text-cyan-400" />
+                    </div>
+                    <span className="text-[10px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold">NEW</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base mb-1 flex items-center gap-2">
+                      Live Auction <ExternalLink className="w-3 h-3 text-gray-600 group-hover:text-cyan-500" />
+                    </h3>
+                    <p className="text-slate-400 text-sm">Run live gift auctions on TikTok. Auto-detects leaders, snipe protection, real-time bids, and stream overlay.</p>
+                  </div>
+                </a>
+                <a href="/tools/overlay-setup" className="group bg-[#12121e] border border-slate-800 rounded-xl p-5 hover:border-purple-700 transition-all flex flex-col gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                    <Layers className="w-6 h-6 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base mb-1 flex items-center gap-2">
+                      Overlay Setup <ExternalLink className="w-3 h-3 text-gray-600 group-hover:text-purple-500" />
+                    </h3>
+                    <p className="text-slate-400 text-sm">Customise theme, opacity and get your 1920x1080 browser source URL for TikTok Live Studio.</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* DOWNLOADS */
           <TabsContent value="downloads">
             <Card className="bg-[#12121e] border-slate-800 text-white">
               <CardHeader>
