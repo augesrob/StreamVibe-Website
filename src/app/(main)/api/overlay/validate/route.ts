@@ -12,32 +12,36 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
   if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 })
 
-  // Look up user by overlay token
-  // NOTE: requires overlay_token column — run migration 003_overlay_token.sql if not yet done
   const { data: profile, error } = await supabaseAdmin
-    .from('profiles')
-    .select('id')
-    .eq('overlay_token', token)
-    .single()
+    .from('profiles').select('id').eq('overlay_token', token).single()
 
   if (error) {
-    // Column might not exist yet — return helpful error
-    const msg = error.message?.includes('column') || error.message?.includes('overlay_token')
-      ? 'overlay_token column missing — run migration 003_overlay_token.sql in Supabase SQL Editor'
-      : 'Invalid token'
     console.error('[overlay/validate]', error.message)
-    return NextResponse.json({ error: msg }, { status: 401 })
-  }
-
-  if (!profile) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+  }
+  if (!profile) return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+
+  // Check tool ban
+  const { data: ban } = await supabaseAdmin
+    .from('tool_bans')
+    .select('reason, proof, proof_type')
+    .eq('user_id', profile.id)
+    .eq('tool', 'auction')
+    .eq('is_active', true)
+    .single()
+
+  if (ban) {
+    return NextResponse.json({
+      error: 'banned',
+      reason: ban.reason,
+      proof: ban.proof,
+      proof_type: ban.proof_type,
+    }, { status: 403 })
   }
 
   // Check Basic+ plan
   const { data: plans } = await supabaseAdmin
-    .from('user_plans')
-    .select('plans(tier)')
-    .eq('user_id', profile.id)
+    .from('user_plans').select('plans(tier)').eq('user_id', profile.id)
 
   const highestTier = (plans || []).reduce((best: string, up: any) => {
     const t = up.plans?.tier || 'free'

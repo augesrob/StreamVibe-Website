@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/ui/use-toast'
 import { Shield, Users, Key, Loader2, RefreshCw, Copy, CheckCircle, XCircle, Clock,
   CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, Mail, ChevronDown, ChevronUp,
-  X, BookOpen, Download, Package, Plus, Save, DollarSign, Star } from 'lucide-react'
+  X, BookOpen, Download, Package, Plus, Save, DollarSign, Star, AlertTriangle, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Profile { id: string; username: string | null; avatar_url: string | null; discord_user_id: string | null; is_banned: boolean; created_at: string }
@@ -30,6 +30,7 @@ interface Plan { id: string; name: string; tier: string; billing_interval: strin
 interface DownloadItem { id: string; name: string; description: string; version: string; tier: string; file_url: string | null; github_repo: string | null; github_token: string | null; is_github_private: boolean; last_updated: string | null; version_history: string | null; sort_order: number; is_active: boolean }
 interface PayPalOrder { id: string; order_id: string; plan_id: string | null; amount: number; status: string; payer_email: string | null; payer_name: string | null; created_at: string; captured_at: string | null; user_id: string | null; plans?: { name: string } | null }
 interface Stats { users: number; activeKeys: number; totalKeys: number; activePlans: number; revenue: number }
+interface ToolBan { id: string; user_id: string; tool: string; reason: string; proof?: string; proof_type?: string; banned_at: string; is_active: boolean; notes?: string }
 
 const KEY_STATUS_META = {
   inactive: { label: 'Inactive', color: 'text-slate-400', bg: 'bg-slate-800', icon: Clock },
@@ -402,6 +403,15 @@ export default function AdminPage() {
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
   const [deletingDlId, setDeletingDlId] = useState<string | null>(null)
+  const [toolBans, setToolBans] = useState<ToolBan[]>([])
+  const [loadingBans, setLoadingBans] = useState(false)
+  const [banUserId, setBanUserId] = useState('')
+  const [banReason, setBanReason] = useState('')
+  const [banProof, setBanProof] = useState('')
+  const [banProofType, setBanProofType] = useState('text')
+  const [banNotes, setBanNotes] = useState('')
+  const [submittingBan, setSubmittingBan] = useState(false)
+  const [unbanningId, setUnbanningId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!loading && (!user || !isAdmin)) router.push('/dashboard')
@@ -514,6 +524,39 @@ export default function AdminPage() {
     setDeletingDlId(null)
   }
 
+  const loadBans = async () => {
+    setLoadingBans(true)
+    const res = await adminFetch('/api/admin/tool-bans', 'GET', null, authToken)
+    if (res.ok) { const d = await res.json(); setToolBans(d.bans || []) }
+    setLoadingBans(false)
+  }
+
+  const submitBan = async () => {
+    if (!banUserId.trim() || !banReason.trim()) return
+    setSubmittingBan(true)
+    const res = await adminFetch('/api/admin/tool-bans', 'POST', {
+      user_id: banUserId.trim(), reason: banReason.trim(),
+      proof: banProof || undefined, proof_type: banProof ? banProofType : undefined,
+      notes: banNotes || undefined,
+    }, authToken)
+    const d = await res.json()
+    if (d.ban) {
+      toast({ title: 'User banned from Tools' })
+      setBanUserId(''); setBanReason(''); setBanProof(''); setBanNotes('')
+      loadBans()
+    } else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setSubmittingBan(false)
+  }
+
+  const unban = async (banId: string) => {
+    setUnbanningId(banId)
+    const res = await adminFetch('/api/admin/tool-bans', 'PATCH', { ban_id: banId }, authToken)
+    const d = await res.json()
+    if (d.success) { toast({ title: 'User unbanned' }); loadBans() }
+    else toast({ variant: 'destructive', title: 'Error', description: d.error })
+    setUnbanningId(null)
+  }
+
   const filteredKeys = keys.filter(k => !keySearch || k.key_code.toLowerCase().includes(keySearch.toLowerCase()) || k.status.includes(keySearch.toLowerCase()))
   const filteredUsers = users.filter(u => !userSearch || (u.username || '').toLowerCase().includes(userSearch.toLowerCase()) || u.id.includes(userSearch))
 
@@ -566,6 +609,7 @@ export default function AdminPage() {
             <TabsTrigger value="plans" className="data-[state=active]:bg-yellow-900/50 data-[state=active]:text-yellow-300"><Star className="w-4 h-4 mr-2" />Plans</TabsTrigger>
             <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300"><Download className="w-4 h-4 mr-2" />Downloads</TabsTrigger>
             <TabsTrigger value="paypal" className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (paypalOrders.length === 0) loadPaypal() }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
+            <TabsTrigger value="toolbans" className="data-[state=active]:bg-red-900/50 data-[state=active]:text-red-300" onClick={() => { if (toolBans.length === 0) loadBans() }}><Ban className="w-4 h-4 mr-2" />Tool Bans</TabsTrigger>
           </TabsList>
 
           {/* USERS TAB */}
@@ -804,6 +848,106 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* TOOL BANS */}
+          <TabsContent value="toolbans" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Ban form */}
+              <Card className="bg-[#12121e] border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2"><Ban className="w-5 h-5 text-red-400" />Ban User from Tools</CardTitle>
+                  <CardDescription className="text-slate-400">Prevents access to auction tool and overlay. Account and plan remain intact.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">User ID *</label>
+                    <Input value={banUserId} onChange={e => setBanUserId(e.target.value)} placeholder="Paste user UUID from Users tab" className="bg-[#060610] border-slate-700 text-white font-mono text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Reason *</label>
+                    <Input value={banReason} onChange={e => setBanReason(e.target.value)} placeholder="e.g. Scamming — fake auction, took gifts without delivering" className="bg-[#060610] border-slate-700 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Proof Type</label>
+                    <select value={banProofType} onChange={e => setBanProofType(e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
+                      <option value="text">Text</option>
+                      <option value="image">Image URL</option>
+                      <option value="video">Video URL</option>
+                      <option value="url">Link / Evidence URL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Proof (optional)</label>
+                    {banProofType === 'text' ? (
+                      <textarea value={banProof} onChange={e => setBanProof(e.target.value)} rows={3} placeholder="Describe the evidence..." className="w-full px-3 py-2 rounded-md border border-slate-700 bg-[#060610] text-white text-sm resize-none focus:outline-none" />
+                    ) : (
+                      <Input value={banProof} onChange={e => setBanProof(e.target.value)} placeholder={banProofType === 'image' ? 'https://imgur.com/...' : 'https://...'} className="bg-[#060610] border-slate-700 text-white" />
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Internal Notes (admin only)</label>
+                    <Input value={banNotes} onChange={e => setBanNotes(e.target.value)} placeholder="Optional internal notes..." className="bg-[#060610] border-slate-700 text-white" />
+                  </div>
+                  <Button onClick={submitBan} disabled={submittingBan || !banUserId.trim() || !banReason.trim()}
+                    className="w-full bg-gradient-to-r from-red-700 to-red-800 hover:from-red-600 hover:to-red-700 text-white">
+                    {submittingBan ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Ban className="w-4 h-4 mr-2" />}
+                    Ban User from Tools
+                  </Button>
+                  <p className="text-xs text-slate-600 text-center">The ban reason and proof will be shown to the user when they try to access the tool.</p>
+                </CardContent>
+              </Card>
+
+              {/* Active bans list */}
+              <Card className="bg-[#12121e] border-slate-800">
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="text-white flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-400" />Active Tool Bans</CardTitle>
+                  <Button size="sm" variant="outline" onClick={loadBans} disabled={loadingBans} className="border-slate-700 text-slate-400 hover:text-white">
+                    {loadingBans ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {loadingBans ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-red-400" /></div>
+                  ) : toolBans.length === 0 ? (
+                    <div className="text-center py-8 text-slate-500 text-sm">No active tool bans</div>
+                  ) : (
+                    <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                      {toolBans.map(ban => (
+                        <div key={ban.id} className="bg-[#0a0a14] border border-red-900/30 rounded-xl p-4 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-mono text-xs text-slate-500 truncate">{ban.user_id}</div>
+                              <div className="text-red-300 font-semibold text-sm mt-1">{ban.reason}</div>
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => unban(ban.id)} disabled={unbanningId === ban.id}
+                              className="border-green-900 text-green-400 hover:bg-green-950 shrink-0">
+                              {unbanningId === ban.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3 mr-1" />}
+                              Unban
+                            </Button>
+                          </div>
+                          {ban.proof && (
+                            <div className="bg-[#060610] rounded-lg p-2 border border-slate-800">
+                              <div className="text-xs text-slate-600 mb-1">Proof ({ban.proof_type})</div>
+                              {ban.proof_type === 'image' ? (
+                                <img src={ban.proof} alt="proof" className="max-h-24 rounded object-contain" />
+                              ) : ban.proof_type === 'text' ? (
+                                <div className="text-xs text-slate-400">{ban.proof}</div>
+                              ) : (
+                                <a href={ban.proof} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-400 hover:underline break-all">{ban.proof}</a>
+                              )}
+                            </div>
+                          )}
+                          {ban.notes && <div className="text-xs text-slate-600 italic">{ban.notes}</div>}
+                          <div className="text-xs text-slate-700">{new Date(ban.banned_at).toLocaleString()}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
         </Tabs>
       </div>
     </div>

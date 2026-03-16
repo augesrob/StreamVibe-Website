@@ -36,6 +36,7 @@ export default function AuctionPage() {
   const wsRef = useRef<WebSocket | null>(null)
 
   const [hasBasic, setHasBasic]           = useState<boolean | null>(null)
+  const [banInfo, setBanInfo]             = useState<{ reason: string; proof?: string; proof_type?: string } | null>(null)
   const [connStatus, setConnStatus]       = useState<'disconnected'|'connecting'|'connected'|'error'>('disconnected')
   const [connUser, setConnUser]           = useState('')
   const [usernameInput, setUsernameInput] = useState('')
@@ -51,7 +52,18 @@ export default function AuctionPage() {
       const best = (data||[]).reduce((b:string,up:any) => {
         const t = up.plans?.tier||'free'; return (RANK[t]||0)>(RANK[b]||0)?t:b
       }, 'free')
-      setHasBasic(RANK[best] >= RANK['basic'])
+      const isBasic = RANK[best] >= RANK['basic']
+      setHasBasic(isBasic)
+      if (isBasic) {
+        // Check tool ban
+        supabaseClient.from('tool_bans')
+          .select('reason, proof, proof_type')
+          .eq('user_id', user.id)
+          .eq('tool', 'auction')
+          .eq('is_active', true)
+          .single()
+          .then(({ data }) => { if (data) setBanInfo(data) })
+      }
     })
   }, [user])
 
@@ -162,6 +174,34 @@ export default function AuctionPage() {
   const phaseLabel: Record<string,string> = {
     idle:'–', running:'● LIVE', snipe:'🛡 SNIPE', paused:'PAUSED', finished:'🏁 DONE'
   }
+
+  if (!loading && user && banInfo) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0b14] text-white text-center p-8 mt-16">
+      <div className="text-6xl mb-4">🚫</div>
+      <h2 className="text-2xl font-black font-mono mb-2 text-red-400">Access Denied</h2>
+      <p className="text-gray-400 mb-1">You have been banned from StreamVibe Tools.</p>
+      <div className="mt-4 bg-[#12121e] border border-red-900/40 rounded-xl p-5 max-w-md w-full text-left space-y-3">
+        <div>
+          <div className="text-xs text-gray-600 uppercase tracking-widest mb-1">Reason</div>
+          <div className="text-red-300 font-semibold">{banInfo.reason}</div>
+        </div>
+        {banInfo.proof && (
+          <div>
+            <div className="text-xs text-gray-600 uppercase tracking-widest mb-1">Proof</div>
+            {banInfo.proof_type === 'image' ? (
+              <img src={banInfo.proof} alt="Ban proof" className="rounded-lg max-w-full max-h-48 object-contain" />
+            ) : banInfo.proof_type === 'video' || banInfo.proof_type === 'url' ? (
+              <a href={banInfo.proof} target="_blank" rel="noopener noreferrer"
+                className="text-cyan-400 hover:underline text-sm break-all">{banInfo.proof}</a>
+            ) : (
+              <div className="text-gray-300 text-sm">{banInfo.proof}</div>
+            )}
+          </div>
+        )}
+      </div>
+      <p className="text-gray-600 text-xs mt-6">Your account and subscription remain active. Contact support if you believe this is an error.</p>
+    </div>
+  )
 
   if (!loading && user && hasBasic === false) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0b14] text-white text-center p-8 mt-16">
