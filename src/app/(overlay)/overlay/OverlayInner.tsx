@@ -58,25 +58,15 @@ const THEME_BORDER: Record<string, string> = {
 
 export default function OverlayInner() {
   useEffect(() => {
-    // Force transparent background for stream overlay
-    document.documentElement.style.background = 'transparent'
-    document.documentElement.style.overflow = 'hidden'
-    document.body.style.background = 'transparent'
-    document.body.style.margin = '0'
-    document.body.style.padding = '0'
-    document.body.style.overflow = 'hidden'
-    // Inject style to override any global CSS
-    const style = document.createElement('style')
-    style.id = 'overlay-reset'
-    style.textContent = `
-      html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
-      header, footer, nav { display: none !important; }
-    `
-    document.head.appendChild(style)
+    // Add overlay-mode class to html — targets CSS in globals.css
+    document.documentElement.classList.add('overlay-mode')
+    // Belt-and-suspenders inline overrides
+    document.documentElement.style.cssText = 'background:transparent!important;overflow:hidden!important;'
+    document.body.style.cssText = 'background:transparent!important;margin:0!important;padding:0!important;overflow:hidden!important;'
     return () => {
-      document.documentElement.style.background = ''
-      document.body.style.background = ''
-      document.getElementById('overlay-reset')?.remove()
+      document.documentElement.classList.remove('overlay-mode')
+      document.documentElement.style.cssText = ''
+      document.body.style.cssText = ''
     }
   }, [])
 
@@ -142,7 +132,17 @@ export default function OverlayInner() {
     </div>
   )
 
-  return <AuctionWidget state={state} newLeader={newLeader} />
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0,
+      width: '100vw', height: '100vh',
+      overflow: 'hidden',
+      background: 'transparent',
+      pointerEvents: 'none',
+    }}>
+      <AuctionWidget state={state} newLeader={newLeader} />
+    </div>
+  )
 }
 
 function AuctionWidget({ state, newLeader }: { state: OverlayState; newLeader: string | null }) {

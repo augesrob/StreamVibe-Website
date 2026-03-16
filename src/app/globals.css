@@ -32,12 +32,21 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
 
-@layer utilities {
-  .bg-grid-slate-800 {
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' fill='none' stroke='%23334155' stroke-opacity='0.2'%3e%3cpath d='M0 .5H31.5V32'/%3e%3c/svg%3e");
+  /* Overlay page — completely transparent, no layout */
+  html.overlay-mode,
+  html.overlay-mode body {
+    background: transparent !important;
+    background-color: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    width: 1920px !important;
+    height: 1080px !important;
+  }
+  html.overlay-mode header,
+  html.overlay-mode footer,
+  html.overlay-mode nav {
+    display: none !important;
   }
 }
-
-html { scroll-behavior: smooth; }
