@@ -68,7 +68,7 @@ export default function OverlayInner() {
     if (authState !== 'valid' || !userId) return
     const channel = supabase.channel(`overlay:${userId}`)
       .on('broadcast', { event: 'state' }, ({ payload }) => {
-        const s = payload as OverlayState
+        const s = { ...DEFAULT_STATE, ...(payload as OverlayState), bids: (payload as any)?.bids ?? [] }
         setState(s)
         if (s.leader && prevLeaderRef.current !== s.leader.user) {
           setNewLeader(s.leader.user)
@@ -80,7 +80,10 @@ export default function OverlayInner() {
     const poll = setInterval(() => {
       try {
         const raw = localStorage.getItem('sv_auction_overlay_state')
-        if (raw) setState(JSON.parse(raw))
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          setState({ ...DEFAULT_STATE, ...parsed, bids: parsed?.bids ?? [] })
+        }
       } catch (_) {}
     }, 500)
     return () => { supabase.removeChannel(channel); clearInterval(poll) }
@@ -106,7 +109,8 @@ export default function OverlayInner() {
 }
 
 function AuctionWidget({ state, newLeader }: { state: OverlayState; newLeader: string | null }) {
-  const { phase, remaining, snipeDelay, leader, minCoins, bids } = state
+  const { phase, remaining, snipeDelay, leader, minCoins } = state
+  const bids: BidEntry[] = state.bids ?? []
   const isSnipe   = phase === 'snipe'
   const isRunning = phase === 'running' || phase === 'snipe'
   const isFinished = phase === 'finished'

@@ -13,17 +13,27 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 400 })
 
   // Look up user by overlay token
+  // NOTE: requires overlay_token column — run migration 003_overlay_token.sql if not yet done
   const { data: profile, error } = await supabaseAdmin
     .from('profiles')
     .select('id')
     .eq('overlay_token', token)
     .single()
 
-  if (error || !profile) {
+  if (error) {
+    // Column might not exist yet — return helpful error
+    const msg = error.message?.includes('column') || error.message?.includes('overlay_token')
+      ? 'overlay_token column missing — run migration 003_overlay_token.sql in Supabase SQL Editor'
+      : 'Invalid token'
+    console.error('[overlay/validate]', error.message)
+    return NextResponse.json({ error: msg }, { status: 401 })
+  }
+
+  if (!profile) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
   }
 
-  // Check they have Basic+ plan
+  // Check Basic+ plan
   const { data: plans } = await supabaseAdmin
     .from('user_plans')
     .select('plans(tier)')
