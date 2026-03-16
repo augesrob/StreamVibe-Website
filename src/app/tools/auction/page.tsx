@@ -3,6 +3,12 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAuctionEngine } from '@/hooks/useAuctionEngine'
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function fmt(s: number) {
@@ -35,13 +41,51 @@ export default function AuctionPage() {
   const engine = useAuctionEngine()
 
   // TikTok connection state
+  const [hasBasic, setHasBasic]       = useState<boolean | null>(null)
   const [connStatus, setConnStatus] = useState<'disconnected'|'connecting'|'connected'|'error'>('disconnected')
   const [connUser, setConnUser]     = useState('')
   const [usernameInput, setUsernameInput] = useState('')
   const [connError, setConnError]   = useState<string | null>(null)
+  const [overlayToken, setOverlayToken] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => { if (!loading && !user) router.push('/login') }, [loading, user, router])
+
+  // Plan gate — Basic+ required
+  useEffect(() => {
+    if (!user) return
+    supabaseClient.from('user_plans').select('plans(tier)').eq('user_id', user.id).then(({ data }) => {
+      const RANK: Record<string,number> = { free:0, basic:1, pro:2, legend:3 }
+      const best = (data||[]).reduce((b:string,up:any) => {
+        const t = up.plans?.tier||'free'; return (RANK[t]||0)>(RANK[b]||0)?t:b
+      }, 'free')
+      setHasBasic(RANK[best] >= RANK['basic'])
+    })
+  }, [user])
+
+  // Fetch overlay token for this user
+  useEffect(() => {
+    if (!user) return
+    supabaseClient
+      .from('profiles')
+      .select('overlay_token')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => { if (data?.overlay_token) setOverlayToken(data.overlay_token) })
+  }, [user])
+
+  // Broadcast state via Supabase Realtime so /overlay?token= receives it
+  useEffect(() => {
+    if (!user) return
+    supabaseClient.channel(`overlay:${user.id}`).send({
+      type: 'broadcast', event: 'state',
+      payload: {
+        phase: engine.phase, remaining: engine.remaining,
+        snipeDelay: engine.snipeDelay, leader: engine.leader,
+        minCoins: engine.minCoins, theme: engine.theme,
+      }
+    })
+  }, [engine.phase, engine.remaining, engine.snipeDelay, engine.leader, engine.minCoins, engine.theme, user])
 
   // Sync state to localStorage so /overlay can poll it
   useEffect(() => {
@@ -130,6 +174,15 @@ export default function AuctionPage() {
     : engine.remaining <= engine.snipeDelay && engine.remaining > 0
       ? 'text-yellow-400'
       : 'text-green-400'
+
+  if (!loading && user && hasBasic === false) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0b14] text-white text-center p-8 mt-16">
+      <div className="text-5xl mb-4">🔒</div>
+      <h2 className="text-2xl font-black font-mono mb-2">Basic Plan Required</h2>
+      <p className="text-gray-400 mb-6">The Live Auction Tool requires a Basic plan or above.</p>
+      <a href="/billing" className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl">View Plans</a>
+    </div>
+  )
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /></div>
 

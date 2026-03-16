@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard, Wrench } from 'lucide-react'
 import Logo from './Logo'
@@ -7,10 +7,30 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
+
+const TIER_RANK: Record<string, number> = { free: 0, basic: 1, pro: 2, legend: 3 }
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { user, isAdmin, signOut } = useAuth()
+  const [hasBasic, setHasBasic] = useState(false)
+
+  // Check if user has Basic+ plan
+  useEffect(() => {
+    if (!user) { setHasBasic(false); return }
+    supabase
+      .from('user_plans')
+      .select('plans(tier)')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        const best = (data || []).reduce((b: string, up: any) => {
+          const t = up.plans?.tier || 'free'
+          return (TIER_RANK[t] || 0) > (TIER_RANK[b] || 0) ? t : b
+        }, 'free')
+        setHasBasic(TIER_RANK[best] >= TIER_RANK['basic'])
+      })
+  }, [user])
 
   const navLinks = [
     { name: 'Home',     href: '/' },
@@ -22,10 +42,9 @@ export default function Header() {
     <header className="fixed w-full top-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-
           <Link href="/"><Logo /></Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav — no Tools link */}
           <nav className="hidden md:flex items-center space-x-8">
             {navLinks.map(link => (
               <Link key={link.name} href={link.href}
@@ -33,12 +52,6 @@ export default function Header() {
                 {link.name}
               </Link>
             ))}
-            {user && (
-              <Link href="/tools/auction"
-                className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 transition-colors text-sm font-semibold">
-                <Wrench className="w-3.5 h-3.5" /> Tools
-              </Link>
-            )}
           </nav>
 
           {/* Desktop user menu */}
@@ -66,11 +79,14 @@ export default function Header() {
                       <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/tools/auction" className="cursor-pointer text-cyan-400 font-semibold focus:bg-slate-800">
-                      <Wrench className="mr-2 h-4 w-4" /> Live Auction Tool
-                    </Link>
-                  </DropdownMenuItem>
+                  {/* Only show Tools if Basic+ */}
+                  {hasBasic && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/tools/auction" className="cursor-pointer text-cyan-400 font-semibold focus:bg-slate-800">
+                        <Wrench className="mr-2 h-4 w-4" /> Live Auction Tool
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem asChild>
                     <Link href="/billing" className="cursor-pointer text-slate-200 hover:text-white focus:bg-slate-800">
                       <CreditCard className="mr-2 h-4 w-4" /> Billing
@@ -116,11 +132,13 @@ export default function Header() {
             ))}
             {user && (
               <>
-                <Link href="/tools/auction"
-                  className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-semibold"
-                  onClick={() => setMenuOpen(false)}>
-                  🛠 Tools
-                </Link>
+                {hasBasic && (
+                  <Link href="/tools/auction"
+                    className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-semibold"
+                    onClick={() => setMenuOpen(false)}>
+                    🛠 Live Auction Tool
+                  </Link>
+                )}
                 <Link href="/dashboard"
                   className="text-slate-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium"
                   onClick={() => setMenuOpen(false)}>
