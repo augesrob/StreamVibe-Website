@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
 
-// Use service role key for server-side admin access
-// These env vars must be set in Vercel dashboard
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 export async function POST(req: NextRequest) {
-  // Validate env vars at request time, not module load time
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json({ valid: false, reason: 'Server misconfigured' }, { status: 500 })
   }
@@ -37,13 +35,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ valid: false, reason: 'Key has expired' }, { status: 403 })
     }
 
-    if (key.hwid && hwid && key.hwid !== hwid) {
-      return NextResponse.json({ valid: false, reason: 'Hardware ID mismatch' }, { status: 403 })
-    }
+    const maxDevices = key.max_devices ?? 1
+    const hwids: string[] = key.hwid_list ?? (key.hwid ? [key.hwid] : [])
 
-    // Lock HWID on first use
-    if (!key.hwid && hwid) {
-      await supabase.from('license_keys').update({ hwid, ip_address: ip }).eq('id', key.id)
+    if (hwid) {
+      if (hwids.includes(hwid)) {
+        // Known device — just update last seen
+        await supabase.from('license_keys').update({ ip_address: ip }).eq('id', key.id)
+      } else if (key.hwid_locked) {
+        // Locked and unknown device
+        return NextResponse.json({ valid: false, reason: 'Device limit reached. Reset HWID in your dashboard.' }, { status: 403 })
+      } else if (hwids.length >= maxDevices) {
+        // At limit
+        return NextResponse.json({
+          valid: false,
+          reason: `Device limit reached (${maxDevices} device${maxDevices !== 1 ? 's' : ''} allowed). Reset HWID in your dashboard.`
+        }, { status: 403 })
+      } else {
+        // New device, under limit — register it
+        const newHwids = [...hwids, hwid]
+        await supabase.from('license_keys').update({
+          hwid: newHwids[0],          // keep first hwid for backward compat
+          hwid_list: newHwids,
+          hwid_device_count: newHwids.length,
+          ip_address: ip,
+          status: key.status === 'inactive' ? 'active' : key.status,
+        }).eq('id', key.id)
+      }
     }
 
     return NextResponse.json({
@@ -51,9 +69,11 @@ export async function POST(req: NextRequest) {
       tier: (key.plans as any)?.tier || null,
       plan_name: (key.plans as any)?.name || null,
       expires_at: key.expires_at,
+      max_devices: maxDevices,
+      device_count: hwids.includes(hwid ?? '') ? hwids.length : hwids.length + 1,
       features: (key.plans as any)?.features || [],
     })
-  } catch {
+  } catch (e) {
     return NextResponse.json({ valid: false, reason: 'Server error' }, { status: 500 })
   }
 }
