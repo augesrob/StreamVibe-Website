@@ -137,13 +137,43 @@ export default function DashboardPage() {
     }
   }
 
-  const getDownloadUrl = (dl: DownloadItem) => {
-    if (dl.file_url) return dl.file_url
-    if (dl.github_repo) {
-      if (dl.is_github_private && dl.github_token) return `${dl.github_repo}?token=${dl.github_token}`
-      return dl.github_repo
+  const [downloading, setDownloading] = useState<string | null>(null)
+
+  const handleDownload = async (dl: DownloadItem) => {
+    setDownloading(dl.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast({ variant: 'destructive', title: 'Not logged in' })
+        return
+      }
+      const res = await fetch(`/api/download?id=${dl.id}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Download failed' }))
+        toast({ variant: 'destructive', title: 'Download failed', description: err.error })
+        return
+      }
+      // Stream to blob and trigger browser save dialog
+      const blob = await res.blob()
+      const filename = res.headers.get('content-disposition')
+        ?.match(/filename="?([^"]+)"?/)?.[1]
+        || dl.name.replace(/[^a-zA-Z0-9]/g, '-') + '-Setup.exe'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      toast({ title: '✅ Download started', description: dl.name })
+    } catch {
+      toast({ variant: 'destructive', title: 'Download failed', description: 'Network error' })
+    } finally {
+      setDownloading(null)
     }
-    return null
   }
 
   if (loading) return <div className="min-h-screen pt-24 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>
@@ -296,7 +326,7 @@ export default function DashboardPage() {
                     {downloads.map((dl) => {
                       const unlocked = tierRank[highestTier] >= tierRank[dl.tier]
                       const DlIcon = tierIcons[dl.tier] || Gift
-                      const dlUrl = getDownloadUrl(dl)
+                      const canDownload = !!(dl.file_url || dl.github_repo)
                       return (
                         <div key={dl.id} className={cn('flex items-center justify-between p-4 rounded-xl border transition-all',
                           unlocked ? 'bg-[#0d0d1a] border-slate-700' : 'bg-[#0a0a12] border-slate-800 opacity-60')}>
@@ -311,8 +341,8 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           {unlocked ? (
-                            dlUrl ? (
-                              <a href={dlUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 ml-3 text-xs px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg font-bold hover:from-cyan-700 hover:to-blue-700 transition-all">Download</a>
+                            canDownload ? (
+                              <button onClick={() => handleDownload(dl)} disabled={downloading === dl.id} className="shrink-0 ml-3 text-xs px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg font-bold hover:from-cyan-700 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{downloading === dl.id ? <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Downloading...</span> : 'Download'}</button>
                             ) : (
                               <span className="shrink-0 ml-3 text-xs px-3 py-1.5 bg-slate-800 text-slate-500 rounded-lg">Coming Soon</span>
                             )
