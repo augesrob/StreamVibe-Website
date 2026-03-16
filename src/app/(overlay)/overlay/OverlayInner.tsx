@@ -58,11 +58,26 @@ const THEME_BORDER: Record<string, string> = {
 
 export default function OverlayInner() {
   useEffect(() => {
+    // Force transparent background for stream overlay
+    document.documentElement.style.background = 'transparent'
+    document.documentElement.style.overflow = 'hidden'
     document.body.style.background = 'transparent'
     document.body.style.margin = '0'
     document.body.style.padding = '0'
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.background = '' }
+    // Inject style to override any global CSS
+    const style = document.createElement('style')
+    style.id = 'overlay-reset'
+    style.textContent = `
+      html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+      header, footer, nav { display: none !important; }
+    `
+    document.head.appendChild(style)
+    return () => {
+      document.documentElement.style.background = ''
+      document.body.style.background = ''
+      document.getElementById('overlay-reset')?.remove()
+    }
   }, [])
 
   const searchParams = useSearchParams()
@@ -171,12 +186,12 @@ function AuctionWidget({ state, newLeader }: { state: OverlayState; newLeader: s
         </div>
       )}
 
-      {/* Main widget — bottom-left */}
+      {/* Main widget — fixed position for 1920x1080 canvas */}
       <div style={{
         position: 'fixed',
-        bottom: '3vh',
-        left: '2vw',
-        width: 'min(320px, 28vw)',
+        bottom: 40,
+        left: 40,
+        width: 320,
         borderRadius: 20,
         overflow: 'hidden',
         background: THEME_BG[theme] ?? THEME_BG['gradient'],
