@@ -1,17 +1,14 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import "./globals.css";
-
-export const dynamic = 'force-dynamic';
 
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerComponentClient({ cookies });
-  
-  // This refreshes the session on every page load
+  const cookieStore = cookies();
+  const supabase = createServerClient({ cookies: () => cookieStore });
   await supabase.auth.getSession();
 
   return (

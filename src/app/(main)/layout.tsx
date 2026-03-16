@@ -1,18 +1,18 @@
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import Navbar from "@/app/components/Navbar";
+import Footer from "@/app/components/Footer";
 
-
-export default async function RootLayout({
+export default function MainLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerComponentClient({ cookies });
-  await supabase.auth.getSession();
-
   return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-[#050510]">
+        {children}
+      </main>
+      <Footer />
+    </>
   );
 }
