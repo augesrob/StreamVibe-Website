@@ -48,6 +48,15 @@ const DEFAULT_STATE: OverlayState = {
 }
 
 export default function OverlayInner() {
+  // Make body transparent for stream overlay use
+  useEffect(() => {
+    document.body.style.background = 'transparent'
+    document.body.style.margin = '0'
+    document.body.style.padding = '0'
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.background = '' }
+  }, [])
+
   const searchParams = useSearchParams()
   const token = searchParams.get('token')
 

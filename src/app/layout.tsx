@@ -1,23 +1,22 @@
-import { createServerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
-import "./globals.css";
+import type { Metadata } from 'next'
+import './globals.css'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { Toaster } from '@/components/ui/toaster'
 
-export default async function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: cookies as any }
-  );
-  
-  await supabase.auth.getSession();
+export const metadata: Metadata = {
+  title: 'StreamVibe - Elevate Your TikTok LIVE Streams',
+  description: 'A comprehensive platform for TikTok LIVE streamers.',
+}
 
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+          <Toaster />
+        </AuthProvider>
+      </body>
     </html>
-  );
+  )
 }
