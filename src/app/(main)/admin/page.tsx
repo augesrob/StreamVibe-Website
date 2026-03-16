@@ -369,6 +369,162 @@ function DownloadEditModal({ item, token, onClose, onSaved, toast }: { item: Dow
   )
 }
 
+
+//======== Bulk Feature Editor =========
+function BulkFeatureEditor({ plans, token, onRefresh, toast }: {
+  plans: Plan[]; token: string; onRefresh: () => void; toast: (t: any) => void
+}) {
+  const [selectedTier, setSelectedTier] = useState('basic')
+  const [newFeature, setNewFeature] = useState('')
+  const [removeFeature, setRemoveFeature] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [mode, setMode] = useState<'add' | 'remove'>('add')
+
+  const tierPlans = plans.filter(p => p.tier === selectedTier)
+
+  // Collect all unique features across selected tier plans
+  const allFeatures = Array.from(new Set(tierPlans.flatMap(p => p.features || []))).sort()
+
+  const applyBulk = async () => {
+    const feature = mode === 'add' ? newFeature.trim() : removeFeature.trim()
+    if (!feature || tierPlans.length === 0) return
+    setSaving(true)
+
+    const updates = tierPlans.map(p => {
+      const current: string[] = p.features || []
+      const updated = mode === 'add'
+        ? current.includes(feature) ? current : [...current, feature]
+        : current.filter(f => f !== feature)
+      return { id: p.id, features: updated }
+    })
+
+    let allOk = true
+    for (const u of updates) {
+      const res = await fetch('/api/admin/plans', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(u),
+      })
+      if (!res.ok) { allOk = false; break }
+    }
+
+    if (allOk) {
+      toast({ title: mode === 'add' ? `Feature added to all ${selectedTier} plans` : `Feature removed from all ${selectedTier} plans` })
+      if (mode === 'add') setNewFeature('')
+      else setRemoveFeature('')
+      onRefresh()
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: 'Some plans failed to update' })
+    }
+    setSaving(false)
+  }
+
+  return (
+    <Card className="bg-[#12121e] border-slate-800">
+      <CardHeader>
+        <CardTitle className="text-white flex items-center gap-2">
+          <Package className="w-5 h-5 text-purple-400" />Bulk Feature Editor
+        </CardTitle>
+        <CardDescription className="text-slate-400">
+          Add or remove a feature across all plans of a given tier at once
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Tier selector */}
+        <div>
+          <label className="text-xs text-slate-500 mb-2 block">Select Tier to Edit</label>
+          <div className="flex gap-2 flex-wrap">
+            {TIERS.map(t => (
+              <button key={t} onClick={() => setSelectedTier(t)}
+                className={cn(
+                  'px-4 py-1.5 rounded-lg text-sm font-semibold capitalize border transition-all',
+                  selectedTier === t
+                    ? TIER_COLORS[t] + ' border-current'
+                    : 'border-slate-700 text-slate-500 hover:text-slate-300'
+                )}>
+                {t}
+              </button>
+            ))}
+          </div>
+          {tierPlans.length > 0 && (
+            <p className="text-xs text-slate-600 mt-2">
+              {tierPlans.length} plan{tierPlans.length > 1 ? 's' : ''} will be affected: {tierPlans.map(p => p.name).join(', ')}
+            </p>
+          )}
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex gap-2">
+          <button onClick={() => setMode('add')}
+            className={cn('flex-1 py-2 rounded-lg text-sm font-bold border transition-all flex items-center justify-center gap-2',
+              mode === 'add' ? 'bg-green-900/40 border-green-700 text-green-400' : 'border-slate-700 text-slate-500 hover:text-slate-300')}>
+            <Plus className="w-4 h-4" />Add Feature
+          </button>
+          <button onClick={() => setMode('remove')}
+            className={cn('flex-1 py-2 rounded-lg text-sm font-bold border transition-all flex items-center justify-center gap-2',
+              mode === 'remove' ? 'bg-red-900/40 border-red-700 text-red-400' : 'border-slate-700 text-slate-500 hover:text-slate-300')}>
+            <Trash2 className="w-4 h-4" />Remove Feature
+          </button>
+        </div>
+
+        {mode === 'add' ? (
+          <div className="space-y-2">
+            <label className="text-xs text-slate-500 block">New Feature Text</label>
+            <div className="flex gap-2">
+              <Input
+                value={newFeature}
+                onChange={e => setNewFeature(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyBulk()}
+                placeholder="e.g. Live Auction Tool access"
+                className="bg-[#060610] border-slate-700 text-white flex-1"
+              />
+              <Button onClick={applyBulk} disabled={saving || !newFeature.trim() || tierPlans.length === 0}
+                className="bg-green-800 hover:bg-green-700 text-white shrink-0">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
+                Add to All
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-xs text-slate-500 block">Select Feature to Remove</label>
+            {allFeatures.length === 0 ? (
+              <p className="text-sm text-slate-600 py-2">No features found on {selectedTier} plans.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {allFeatures.map(f => (
+                  <button key={f} onClick={() => setRemoveFeature(f)}
+                    className={cn(
+                      'text-xs px-3 py-1.5 rounded-full border transition-all',
+                      removeFeature === f
+                        ? 'bg-red-900/40 border-red-600 text-red-300'
+                        : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                    )}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Input
+                value={removeFeature}
+                onChange={e => setRemoveFeature(e.target.value)}
+                placeholder="Or type feature text manually"
+                className="bg-[#060610] border-slate-700 text-white flex-1"
+              />
+              <Button onClick={applyBulk} disabled={saving || !removeFeature.trim() || tierPlans.length === 0}
+                className="bg-red-800 hover:bg-red-700 text-white shrink-0">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                Remove from All
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 //========================================
 export default function AdminPage() {
   const { user, isAdmin, loading } = useAuth()
@@ -728,34 +884,49 @@ export default function AdminPage() {
 
           {/* PLANS TAB */}
           <TabsContent value="plans">
-            <Card className="bg-[#12121e] border-slate-800">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div><CardTitle className="text-white flex items-center gap-2"><Star className="w-5 h-5 text-yellow-400" />Plans</CardTitle><CardDescription className="text-slate-500">Manage pricing and plan details</CardDescription></div>
-                <Button onClick={() => { setEditingPlan('new'); setShowPlanModal(true) }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />New Plan</Button>
-              </CardHeader>
-              <CardContent>
-                {plans.length === 0 ? <p className="text-center text-slate-500 py-8">No plans loaded.</p> : (
-                  <div className="space-y-2">
-                    {plans.map(p => (
-                      <div key={p.id} className="flex items-center justify-between bg-[#0d0d1a] rounded-lg px-4 py-3 border border-slate-800">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier])}>{p.tier}</span>
-                          <div className="min-w-0">
-                            <p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days ? `${p.duration_days}d` : 'lifetime'} / Sort: {p.sort_order}</p>
-
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-3 shrink-0">
-                          {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
-                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true) }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
-                          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId === p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
-                        </div>
-                      </div>
-                    ))}
+            <div className="space-y-6">
+              <Card className="bg-[#12121e] border-slate-800">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-white flex items-center gap-2"><Star className="w-5 h-5 text-yellow-400" />Plans</CardTitle>
+                    <CardDescription className="text-slate-400">Manage subscription plans</CardDescription>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  <Button onClick={() => { setEditingPlan('new'); setShowPlanModal(true) }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />New Plan</Button>
+                </CardHeader>
+                <CardContent>
+                  {plans.length === 0 ? <p className="text-center text-slate-500 py-8">No plans loaded.</p> : (
+                    <div className="space-y-2">
+                      {plans.map(p => (
+                        <div key={p.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 overflow-hidden">
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier] || TIER_COLORS.free)}>{p.tier}</span>
+                              <div className="min-w-0">
+                                <p className="text-white font-semibold text-sm truncate">{p.name}</p>
+                                <p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days ? p.duration_days + ' days' : 'lifetime'}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 ml-3 shrink-0">
+                              {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true) }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId === p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
+                            </div>
+                          </div>
+                          {p.features && p.features.length > 0 && (
+                            <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+                              {p.features.map((f: string, i: number) => (
+                                <span key={i} className="text-[11px] bg-slate-800/80 text-slate-400 px-2 py-0.5 rounded-full">{f}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <BulkFeatureEditor plans={plans} token={authToken} onRefresh={loadPlans} toast={toast} />
+            </div>
           </TabsContent>
 
           {/* DOWNLOADS TAB */}
