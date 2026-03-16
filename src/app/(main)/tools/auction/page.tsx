@@ -335,9 +335,7 @@ export default function AuctionPage() {
         <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
           <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase text-center mb-3">⏱ QUICK TIME ADJUST</div>
           <div className="flex gap-2 justify-center">
-            {([-30,'red'],[-10,'red'],[+10,'green'],[+30,'green']) && (
-              [[-30,'red'],[-10,'red'],[+10,'green'],[+30,'green']] as [number,string][]
-            ).map(([d,c]) => (
+            {([[-30,'red'],[-10,'red'],[+10,'green'],[+30,'green']] as [number,string][]).map(([d,c]) => (
               <button key={d} onClick={() => engine.adjust(d)}
                 className={`px-4 py-2 rounded-lg font-mono text-xs font-bold border transition-all ${
                   c === 'red'
