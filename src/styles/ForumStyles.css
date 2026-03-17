@@ -1,0 +1,56 @@
+/* Forum Specific Styles */
+.forum-card {
+  @apply bg-[#1a1a24] border border-gray-800 rounded-xl shadow-lg transition-all duration-300;
+}
+
+.forum-card:hover {
+  @apply border-cyan-500/30 shadow-cyan-900/10;
+}
+
+.forum-gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500;
+}
+
+.forum-btn-primary {
+  @apply bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-medium shadow-lg shadow-cyan-500/20 border-0 transition-all;
+}
+
+/* Badges */
+.badge-admin {
+  @apply bg-red-500/10 text-red-400 border border-red-500/20;
+}
+.badge-mod {
+  @apply bg-green-500/10 text-green-400 border border-green-500/20;
+}
+.badge-pro {
+  @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+}
+.badge-user {
+  @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
+}
+.badge-newbie { @apply bg-gray-500/10 text-gray-400 border border-gray-500/20; }
+.badge-member { @apply bg-blue-500/10 text-blue-400 border border-blue-500/20; }
+.badge-contributor { @apply bg-purple-500/10 text-purple-400 border border-purple-500/20; }
+.badge-expert { @apply bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-amber-500/10 shadow-sm; }
+
+/* Thread Status */
+.thread-pinned {
+  @apply border-l-4 border-l-amber-500 bg-amber-900/5;
+}
+.thread-locked {
+  @apply opacity-90 grayscale-[0.3];
+}
+
+/* Thread Nesting */
+.post-reply-indent {
+  @apply ml-0 sm:ml-6 md:ml-10 border-l-2 border-gray-800 pl-4 mt-4;
+}
+
+/* Animations */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out forwards;
+}
