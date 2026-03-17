@@ -1,69 +1,31 @@
-
 import { supabase } from '@/lib/customSupabaseClient';
 
-/**
- * Checks if the Supabase Authentication service is reachable and operational.
- * Uses a timeout to prevent hanging requests.
- * Updated to verify connectivity with new project.
- */
 export const checkSupabaseHealth = async () => {
-  const HEALTH_TIMEOUT = 5000; // 5 seconds
+  const HEALTH_TIMEOUT = 5000;
 
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('TIMEOUT')), HEALTH_TIMEOUT)
   );
 
   const checkPromise = async () => {
-    try {
-      // Use env vars which should now point to the correct Supabase instance
-      const authUrl = `${import.meta.env.VITE_SUPABASE_URL}/auth/v1/health`;
-      
-      const response = await fetch(authUrl, {
-        method: 'GET',
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
-      }
-
-      // Also try a lightweight DB ping to ensure data service is also up
-      // We select from a public table if possible, or just check if the query throws a network error immediately.
-      // We use the 'plans' table which is publicly readable.
-      const { error: dbError } = await supabase.from('plans').select('id').limit(1).maybeSingle();
-      
-      if (dbError && (dbError.code === undefined || dbError.message?.includes('fetch'))) {
-         // This indicates a network level failure rather than a permission/logic error
-         throw new Error(`DB Connection Error: ${dbError.message}`);
-      }
-
-      return { status: 'online' };
-    } catch (error) {
-      throw error;
-    }
+    // Use the supabase client's own URL — works regardless of env var naming
+    const supabaseUrl = 'https://raykfnoptzzsdcvjupzf.supabase.co';
+    const response = await fetch(`${supabaseUrl}/auth/v1/health`, {
+      method: 'GET',
+      headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJheWtmbm9wdHp6c2Rjdmp1cHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MDkwMjcsImV4cCI6MjA4NTI4NTAyN30.hAAb2OLsdq4zPYQnKzzVYIVlDcGthhoIvIRMO-cUlvo' }
+    });
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    return { status: 'online' };
   };
 
   try {
     await Promise.race([checkPromise(), timeoutPromise]);
     return { status: 'online', message: 'Service Operational' };
   } catch (error) {
-    let status = 'offline';
     let message = 'Connection Failed';
-    let detail = error.message;
-
-    if (error.message === 'TIMEOUT') {
-      message = 'Connection Timeout (Latency High)';
-    } else if (error.message.includes('521')) {
-      message = 'Service Down (521)';
-      detail = 'The Supabase instance appears to be offline or restarting.';
-    } else if (error.message.includes('Failed to fetch')) {
-      message = 'Network Error (CORS/Offline)';
-      detail = 'Could not reach the server. Check your internet connection.';
-    }
-
-    console.warn('[Supabase Health]', message, detail);
-    return { status, message, detail };
+    if (error.message === 'TIMEOUT') message = 'Connection Timeout (Latency High)';
+    else if (error.message.includes('Failed to fetch')) message = 'Network Error';
+    console.warn('[Supabase Health]', message);
+    return { status: 'offline', message };
   }
 };
