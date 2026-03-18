@@ -1,348 +1,277 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui/use-toast";
-import { Crown, CheckCircle2, CreditCard, Sparkles, ArrowRight, Loader2, Shield, Monitor, RefreshCw, Check, Calendar, Laptop, Lock } from 'lucide-react';
-import { Helmet } from 'react-helmet';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-import PayPalCheckoutOfficial from '@/components/PayPalCheckoutOfficial';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
+import { Check, Loader2, CheckCircle2, ArrowRight, Key, Sparkles, Zap, Star, Crown, Gift, Clock, ExternalLink } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { callEdgeFunctionWithTimeout } from '@/lib/edge-functions';
-import { getClientIPAndHWID } from '@/lib/hwid-generator';
+import PayPalCheckoutOfficial from '@/components/PayPalCheckoutOfficial';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+
+const INTERVALS = ['monthly', 'quarterly', 'yearly', 'lifetime'];
+const TIERS     = ['free', 'basic', 'pro', 'legend'];
+
+const tierMeta = {
+  free:   { label: 'Free',   icon: Gift,  color: 'text-slate-400',  border: 'border-slate-700' },
+  basic:  { label: 'Basic',  icon: Zap,   color: 'text-blue-400',   border: 'border-blue-800'  },
+  pro:    { label: 'Pro',    icon: Star,  color: 'text-cyan-400',   border: 'border-cyan-700'  },
+  legend: { label: 'Legend', icon: Crown, color: 'text-purple-400', border: 'border-purple-700'},
+};
+const intervalLabel = { monthly:'Monthly', quarterly:'Quarterly', yearly:'Yearly', lifetime:'Lifetime' };
+
+function cn2(...c) { return c.filter(Boolean).join(' '); }
 
 const Billing = () => {
   const { user, loading: authLoading, userPlans, refreshPlans } = useAuth();
   const { toast } = useToast();
-  
-  const [lockInfo, setLockInfo] = useState({ hwid: null, ip_address: null });
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  const [plans, setPlans]         = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [redeemCode, setRedeemCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
-  const [plans, setPlans] = useState([]);
-  const [resettingHwid, setResettingHwid] = useState(false);
-  
-  const [paypalStatus, setPaypalStatus] = useState({ 
-    checked: false, connected: false, loading: true, error: null
-  });
-
-  const checkPayPalConnection = async () => {
-    try {
-      setPaypalStatus({ checked: true, connected: true, loading: false, error: null });
-    } catch (err) {
-      setPaypalStatus({ checked: true, connected: false, loading: false, error: "Connection Check Failed" });
-    }
-  };
-
-  const fetchBillingData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      // Fetch lock info from active license key
-      const { data: licenseData } = await supabase
-        .from('license_keys')
-        .select('hwid, ip_address')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      
-      setLockInfo(licenseData || { hwid: null, ip_address: null });
-      
-      // Updated to fetch from 'plans' table
-      const { data: planList } = await supabase.from('plans').select('*').order('price', { ascending: true });
-      setPlans(planList || []);
-      await refreshPlans();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [interval, setInterval]   = useState('monthly');
+  const [buyingPlan, setBuyingPlan] = useState(null); // plan object for PayPal dialog
 
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchBillingData();
-      checkPayPalConnection();
-    } else if (!authLoading && !user) {
-      setLoading(false);
-      setPaypalStatus(prev => ({ ...prev, loading: false }));
-    }
-  }, [user, authLoading]);
+    if (!authLoading && !user) navigate('/login');
+  }, [authLoading, user, navigate]);
 
-  const handleRedeem = async (e) => {
-    e.preventDefault();
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase.from('plans').select('*').order('sort_order');
+    setPlans(data || []);
+    await refreshPlans();
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleRedeem = async () => {
     if (!redeemCode.trim()) return;
-
     setRedeeming(true);
     try {
-      const { ip, hwid } = await getClientIPAndHWID();
-
       const { data, error } = await callEdgeFunctionWithTimeout('redeem-license-key', {
-        body: { 
-            key_code: redeemCode.trim(),
-            current_ip: ip,
-            current_hwid: hwid
-        }
+        body: { key_code: redeemCode.trim() },
       });
-      
       if (error) throw new Error(error.message);
-
-      if (data.success) {
-        toast({
-           title: "Success! Plan Activated",
-           description: data.message,
-           className: "bg-green-900 border-green-800 text-white"
-        });
+      if (data?.success) {
+        toast({ title: 'Key Redeemed!', description: data.message });
         setRedeemCode('');
-        await fetchBillingData();
+        loadData();
       } else {
-        toast({ variant: "destructive", title: "Redemption Failed", description: data.message });
+        toast({ variant: 'destructive', title: 'Invalid Key', description: data?.message || 'Could not redeem key.' });
       }
     } catch (err) {
-      toast({ variant: "destructive", title: "Error", description: err.message || "An unexpected error occurred" });
+      toast({ variant: 'destructive', title: 'Error', description: err.message });
     } finally {
       setRedeeming(false);
     }
   };
 
-  const handleHwidReset = async () => {
-     setResettingHwid(true);
-     try {
-        const { data, error } = await supabase.rpc('reset_hwid');
-        if (error) throw error;
-        
-        if (data.success) {
-           toast({ title: "Reset Successful", description: data.message });
-           fetchBillingData();
-        } else {
-           toast({ variant: "destructive", title: "Reset Failed", description: data.message });
-        }
-     } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: err.message });
-     } finally {
-        setResettingHwid(false);
-     }
+  const isOwned = (planId) =>
+    (userPlans||[]).some(up => up.plan_id === planId && (!up.expires_at || new Date(up.expires_at) > new Date()));
+
+  const getDaysLeft = (expires) => {
+    if (!expires) return 'Lifetime Access';
+    const days = Math.max(0, Math.ceil((new Date(expires) - Date.now()) / 86400000));
+    return `${days} days remaining`;
   };
 
-  const getUserPlanForPlanId = (planId) => {
-    if (!userPlans) return null;
-    return userPlans.find(up => up.plan_id === planId && (up.expires_at === null || new Date(up.expires_at) > new Date()));
-  };
+  // Find plan for a tier+interval combination
+  const planFor = (tier) =>
+    tier === 'free'
+      ? plans.find(p => p.tier === 'free')
+      : plans.find(p => p.tier === tier && p.billing_interval === interval)
+        || plans.find(p => p.tier === tier); // fallback to any interval
 
-  const getDaysRemaining = (expiryDate) => {
-    if (!expiryDate) return "Lifetime";
-    const diff = new Date(expiryDate) - new Date();
-    const days = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-    return `${days} Days`;
-  };
-
-  if (authLoading) return <div className="min-h-screen pt-24 text-center text-white">Loading...</div>;
+  if (authLoading || loading) return (
+    <div className="min-h-screen pt-24 flex items-center justify-center bg-[#08080f]">
+      <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen pt-24 px-4 bg-[#0a0a0f] text-white pb-20">
-      <Helmet><title>Billing & Subscription | StreamVibe</title></Helmet>
-      
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Billing & Subscription</h1>
-            <p className="text-gray-400">Manage your plans, redeem keys, and view security settings.</p>
-          </div>
-          
-          {!paypalStatus.loading && (
-             <div className="px-4 py-2 rounded-full border text-sm font-medium flex items-center gap-2 bg-green-950/30 border-green-800 text-green-400">
-                <Check className="w-4 h-4" /> PayPal Ready
-             </div>
-          )}
+    <div className="min-h-screen pt-24 px-4 bg-[#08080f] text-white pb-20">
+      <Helmet><title>Billing & Plans | StreamVibe</title></Helmet>
+
+      {/* PayPal purchase dialog */}
+      {buyingPlan && (
+        <Dialog open={true} onOpenChange={() => setBuyingPlan(null)}>
+          <DialogContent className="bg-[#1a1a24] text-white border-slate-700">
+            <DialogHeader>
+              <DialogTitle>Purchase {buyingPlan.name}</DialogTitle>
+              <DialogDescription className="text-slate-400">Complete your purchase via PayPal.</DialogDescription>
+            </DialogHeader>
+            <div className="py-3 space-y-3">
+              <div className="flex justify-between items-center p-3 bg-[#0d0d1a] rounded-lg">
+                <span className="text-slate-400">Price</span>
+                <span className="font-bold">${buyingPlan.price} / {buyingPlan.billing_interval}</span>
+              </div>
+            </div>
+            <DialogFooter>
+              <PayPalCheckoutOfficial
+                plan_id={buyingPlan.id} amount={buyingPlan.price}
+                currency="USD" planName={buyingPlan.name}
+                planInterval={buyingPlan.billing_interval}
+                className="w-full"
+              />
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <div className="max-w-6xl mx-auto space-y-10">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">Billing &amp; Plans</h1>
+          <p className="text-slate-400">Manage your subscription and redeem license keys.</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-8">
-                <Card className="bg-[#1a1a24] border-gray-800 relative overflow-hidden">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                           <Sparkles className="w-5 h-5 text-cyan-400" />
-                           Your Active Plans
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {userPlans && userPlans.length > 0 ? (
-                            <div className="space-y-4">
-                                {userPlans.map(plan => (
-                                    <div key={plan.id} className="bg-[#12121a] p-4 rounded-lg border border-gray-800 flex justify-between items-center">
-                                        <div>
-                                            <h3 className="font-bold text-lg text-white">{plan.plans?.name || 'Unknown Plan'}</h3>
-                                            <div className="flex items-center gap-2 text-sm text-gray-400 mt-1">
-                                                <Calendar className="w-3 h-3" />
-                                                Expires: <span className="text-cyan-400">{getDaysRemaining(plan.expires_at)}</span> 
-                                            </div>
-                                        </div>
-                                        <Badge className="bg-green-900/50 text-green-400 border-green-800">Active</Badge>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-6">
-                               <p className="text-gray-400">You don't have any active plans yet.</p>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                <div className="space-y-4">
-                    <h2 className="text-xl font-bold flex items-center gap-2">
-                        <Crown className="w-5 h-5 text-purple-500" /> Available Plans
-                    </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {plans.map(plan => {
-                            const userPlan = getUserPlanForPlanId(plan.id);
-                            return (
-                                <Card key={plan.id} className={cn("bg-[#1a1a24] transition-all relative overflow-hidden border-gray-800")}>
-                                    {userPlan && <div className="absolute top-0 right-0 bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 z-10">OWNED</div>}
-                                    <CardHeader className="pb-2">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <CardTitle className="text-lg">{plan.name}</CardTitle>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-xs text-gray-500 font-mono border border-gray-700 rounded px-1">{plan.duration_days} Days</span>
-                                                </div>
-                                            </div>
-                                            <span className="text-cyan-400 font-bold">${plan.price}</span>
-                                        </div>
-                                        <CardDescription className="text-xs mt-2">Access for {plan.duration_days} days</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="pb-2">
-                                        <ul className="grid grid-cols-1 gap-1">
-                                            {Array.isArray(plan.features) && plan.features.map((f, i) => (
-                                                <li key={i} className="text-xs text-gray-400 flex items-start gap-2">
-                                                    <CheckCircle2 className="w-3 h-3 text-cyan-500/50 shrink-0 mt-0.5" /> 
-                                                    <span>{f}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </CardContent>
-                                    <CardFooter className="pt-4">
-                                        {userPlan ? (
-                                             <Button disabled className="w-full bg-green-900/20 text-green-500 border border-green-900/50"><Check className="w-4 h-4 mr-2" /> Plan Active</Button>
-                                        ) : (
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <Button className="w-full bg-[#12121a] hover:bg-cyan-950 border border-gray-700 text-white hover:text-cyan-400 group">
-                                                        Add Plan <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
-                                                    </Button>
-                                                </DialogTrigger>
-                                                <DialogContent className="bg-[#1a1a24] text-white border-gray-800">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Purchase {plan.name}</DialogTitle>
-                                                        <DialogDescription>Add this plan to your account.</DialogDescription>
-                                                    </DialogHeader>
-                                                    <div className="py-4 space-y-4">
-                                                        <div className="flex justify-between items-center p-3 bg-[#12121a] rounded-lg">
-                                                            <span className="text-gray-400">Price</span>
-                                                            <span className="font-bold">${plan.price} / {plan.duration_days} days</span>
-                                                        </div>
-                                                        <div className="bg-yellow-900/20 p-3 rounded-lg border border-yellow-800/50 text-xs text-yellow-200 flex items-start gap-2">
-                                                           <Lock className="w-4 h-4 mt-0.5 shrink-0" />
-                                                           <span>Note: This subscription will lock your account to your current device (IP and Hardware ID) to prevent sharing.</span>
-                                                        </div>
-                                                    </div>
-                                                    <DialogFooter>
-                                                        <PayPalCheckoutOfficial 
-                                                            plan_id={plan.id}
-                                                            amount={plan.price}
-                                                            currency="USD"
-                                                            planName={plan.name}
-                                                            planInterval={`${plan.duration_days} days`}
-                                                            className="w-full"
-                                                        />
-                                                    </DialogFooter>
-                                                </DialogContent>
-                                            </Dialog>
-                                        )}
-                                    </CardFooter>
-                                </Card>
-                            );
-                        })}
+        {/* Active Plans */}
+        {userPlans && userPlans.length > 0 && (
+          <Card className="bg-[#12121e] border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Sparkles className="w-5 h-5 text-cyan-400" />Your Active Plans
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {userPlans.map(up => (
+                  <div key={up.id} className="bg-[#0d0d1a] p-4 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <div>
+                      <p className="font-bold text-white">{up.plans?.name || 'Unknown Plan'}</p>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                        <Clock className="w-3 h-3" />
+                        <span className="text-cyan-400">{getDaysLeft(up.expires_at)}</span>
+                      </div>
                     </div>
-                </div>
+                    <Badge className="bg-green-900/50 text-green-400 border border-green-800">Active</Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-                <Card className="bg-[#1a1a24] border-gray-800">
-                  <CardHeader>
-                     <CardTitle className="flex items-center gap-2"><CreditCard className="w-5 h-5 text-purple-400" />Redeem License Key</CardTitle>
-                     <CardDescription>Enter your license key or promotional code.</CardDescription>
+        {/* Available Plans */}
+        <div>
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <Crown className="w-5 h-5 text-purple-400" />Available Plans
+          </h2>
+
+          {/* Interval toggle */}
+          <div className="flex mb-5">
+            <div className="inline-flex bg-slate-900 border border-slate-800 rounded-xl p-1 gap-1">
+              {INTERVALS.map(iv => (
+                <button key={iv} onClick={() => setInterval(iv)}
+                  className={cn2('px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                    interval === iv
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  )}>
+                  {intervalLabel[iv]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Plan cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {TIERS.map(tier => {
+              const plan = planFor(tier);
+              if (!plan) return null;
+              const meta  = tierMeta[tier];
+              const Icon  = meta.icon;
+              const owned = isOwned(plan.id);
+              return (
+                <Card key={tier} className={cn2('flex flex-col bg-[#0d0d1a] border transition-all hover:-translate-y-0.5', meta.border, owned && 'ring-1 ring-green-700')}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={cn2('inline-flex items-center gap-1 text-xs font-bold', meta.color)}>
+                        <Icon className="w-3.5 h-3.5" />{meta.label}
+                      </span>
+                      {owned && <Badge className="bg-green-900/50 text-green-400 border-green-800 text-[10px]">Owned</Badge>}
+                    </div>
+                    <p className="text-2xl font-extrabold text-white">{plan.price === 0 ? 'Free' : `$${plan.price}`}</p>
+                    <p className="text-xs text-slate-500">
+                      {plan.price === 0 ? 'No card needed'
+                        : plan.billing_interval === 'lifetime' ? 'one-time payment'
+                        : `/${plan.billing_interval === 'monthly' ? 'mo' : plan.billing_interval === 'quarterly' ? 'qtr' : 'yr'}`}
+                    </p>
+                    {plan.custom_note && <p className={cn2('text-xs font-medium mt-1', meta.color)}>{plan.custom_note}</p>}
                   </CardHeader>
-                  <CardContent>
-                     <form onSubmit={handleRedeem} className="flex gap-4">
-                        <Input 
-                            placeholder="XXXX-XXXX-XXXX-XXXX" 
-                            value={redeemCode}
-                            onChange={(e) => setRedeemCode(e.target.value)}
-                            className="bg-[#12121a] border-gray-700 font-mono uppercase tracking-widest"
-                        />
-                        <Button type="submit" disabled={redeeming || !redeemCode} className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white min-w-[120px]">
-                           {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
-                        </Button>
-                     </form>
+                  <CardContent className="flex-grow pb-3">
+                    <ul className="space-y-2">
+                      {Array.isArray(plan.features) && plan.features.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                          <CheckCircle2 className={cn2('w-3.5 h-3.5 shrink-0 mt-0.5', meta.color)} />{f}
+                        </li>
+                      ))}
+                    </ul>
                   </CardContent>
-               </Card>
-            </div>
+                  <CardFooter>
+                    {owned ? (
+                      <Button disabled className="w-full text-xs bg-green-900/20 text-green-500 border border-green-900">
+                        <Check className="w-3 h-3 mr-1" />Active
+                      </Button>
+                    ) : tier === 'free' ? (
+                      <Button asChild className="w-full text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white">
+                        <Link to="/signup">Sign Up Free</Link>
+                      </Button>
+                    ) : (
+                      <Button onClick={() => setBuyingPlan(plan)}
+                        className="w-full text-xs bg-[#1a1a2e] hover:bg-slate-800 border border-slate-700 text-white group font-bold">
+                        <ExternalLink className="w-3 h-3 mr-1" />Pay with PayPal
+                        <ArrowRight className="w-3 h-3 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
 
-            <div className="space-y-8">
-               <Card className="bg-[#1a1a24] border-gray-800">
-                   <CardHeader>
-                       <CardTitle className="flex items-center gap-2"><Shield className="w-5 h-5 text-red-400" /> Security & Locks</CardTitle>
-                       <CardDescription>Your account is locked to the following identifiers.</CardDescription>
-                   </CardHeader>
-                   <CardContent className="space-y-6">
-                       <div className="space-y-4">
-                           <div className="flex items-center justify-between p-3 bg-[#12121a] rounded-lg border border-gray-800">
-                               <div className="flex items-center gap-3">
-                                   <Laptop className="w-5 h-5 text-gray-500" />
-                                   <div>
-                                       <p className="text-sm font-medium">Hardware ID</p>
-                                       <p className="text-xs text-gray-500 font-mono max-w-[120px] truncate" title={lockInfo?.hwid}>{lockInfo?.hwid || 'Not Set'}</p>
-                                   </div>
-                               </div>
-                               <Badge variant={lockInfo?.hwid ? "destructive" : "secondary"}>
-                                   {lockInfo?.hwid ? "Locked" : "Open"}
-                               </Badge>
-                           </div>
-
-                           <div className="flex items-center justify-between p-3 bg-[#12121a] rounded-lg border border-gray-800">
-                               <div className="flex items-center gap-3">
-                                   <Monitor className="w-5 h-5 text-gray-500" />
-                                   <div>
-                                       <p className="text-sm font-medium">IP Address</p>
-                                       <p className="text-xs text-gray-500 font-mono">{lockInfo?.ip_address || 'Not Set'}</p>
-                                   </div>
-                               </div>
-                               <Badge variant={lockInfo?.ip_address ? "destructive" : "secondary"}>
-                                   {lockInfo?.ip_address ? "Locked" : "Floating"}
-                               </Badge>
-                           </div>
-                       </div>
-                       
-                       <div className="pt-4 border-t border-gray-800">
-                           <Button 
-                                variant="outline" 
-                                className="w-full border-red-900/30 hover:bg-red-950/20 hover:text-red-400 text-gray-400"
-                                onClick={handleHwidReset}
-                                disabled={resettingHwid}
-                           >
-                               {resettingHwid ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                               Reset Locks
-                           </Button>
-                           <p className="text-xs text-gray-600 mt-2 text-center">Resetting has a 24-hour cooldown.</p>
-                       </div>
-                   </CardContent>
-               </Card>
+        {/* Redeem Key */}
+        <Card className="bg-[#12121e] border-slate-800">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Key className="w-5 h-5 text-purple-400" />Redeem License Key
+            </CardTitle>
+            <CardDescription className="text-slate-400">Enter a license key to activate a plan instantly.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input
+                placeholder="SV-XXXX-XXXX-XXXX-XXXX"
+                value={redeemCode}
+                onChange={e => setRedeemCode(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === 'Enter' && handleRedeem()}
+                className="bg-[#0d0d1a] border-slate-700 font-mono tracking-widest text-white flex-1"
+              />
+              <Button onClick={handleRedeem} disabled={redeeming || !redeemCode.trim()}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white min-w-28 font-bold">
+                {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
+              </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Bottom links */}
+        <div className="flex gap-4 text-sm">
+          <Link to="/dashboard" className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
+            <ArrowRight className="w-3.5 h-3.5" />Dashboard
+          </Link>
+          <a href="/#pricing" className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors">
+            <ArrowRight className="w-3.5 h-3.5" />Compare Plans
+          </a>
         </div>
       </div>
     </div>
