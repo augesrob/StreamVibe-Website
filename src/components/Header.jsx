@@ -1,20 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu, X, LogOut, LayoutDashboard, ShieldCheck, CreditCard, Wrench } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
-import SupabaseStatus from '@/components/SupabaseStatus';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -22,19 +17,15 @@ const Header = () => {
   const [avatarUrl, setAvatarUrl]  = useState(null);
   const [username, setUsername]    = useState(null);
 
-  React.useEffect(() => {
-    if (user) {
-      if (user.user_metadata?.avatar_url) setAvatarUrl(user.user_metadata.avatar_url);
-      if (user.user_metadata?.username)   setUsername(user.user_metadata.username);
-      const fetchProfile = async () => {
-        const { data } = await supabase.from('profiles').select('avatar_url, username').eq('id', user.id).single();
-        if (data) {
-          if (data.avatar_url) setAvatarUrl(data.avatar_url);
-          if (data.username)   setUsername(data.username);
-        }
-      };
-      fetchProfile();
-    }
+  useEffect(() => {
+    if (!user) return;
+    if (user.user_metadata?.avatar_url) setAvatarUrl(user.user_metadata.avatar_url);
+    if (user.user_metadata?.username)   setUsername(user.user_metadata.username);
+    supabase.from('profiles').select('avatar_url, username').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (data?.avatar_url) setAvatarUrl(data.avatar_url);
+        if (data?.username)   setUsername(data.username);
+      });
   }, [user]);
 
   const navLinks = [
@@ -48,13 +39,12 @@ const Header = () => {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
 
-          {/* Logo */}
-          <Link to="/" className="flex-shrink-0 flex items-center gap-4">
+          {/* Logo — no status widget */}
+          <Link to="/" className="flex-shrink-0 flex items-center">
             <Logo className="h-8 w-auto" />
-            <SupabaseStatus />
           </Link>
 
-          {/* Desktop Nav */}
+          {/* Desktop Nav — NO Tools link */}
           <nav className="hidden md:flex space-x-8">
             {navLinks.map(link => (
               <React.Fragment key={link.name}>
@@ -69,16 +59,9 @@ const Header = () => {
                 )}
               </React.Fragment>
             ))}
-            {/* Tools link — only shown when logged in */}
-            {user && (
-              <Link to="/tools/auction"
-                className="text-cyan-400 hover:text-cyan-300 transition-colors text-sm font-semibold flex items-center gap-1">
-                <Wrench className="w-3.5 h-3.5" /> Tools
-              </Link>
-            )}
           </nav>
 
-          {/* User Menu / CTA */}
+          {/* Desktop user menu */}
           <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <DropdownMenu>
@@ -90,39 +73,40 @@ const Header = () => {
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
+
+                <DropdownMenuContent className="w-56 bg-slate-900 border-slate-700 text-white" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{username || 'User'}</p>
-                      <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                      <p className="text-sm font-medium">{username || 'User'}</p>
+                      <p className="text-xs text-slate-400">{user.email}</p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
+                  <DropdownMenuSeparator className="bg-slate-700" />
                   <DropdownMenuItem asChild>
-                    <Link to="/dashboard" className="cursor-pointer">
-                      <LayoutDashboard className="mr-2 h-4 w-4" /><span>Dashboard</span>
+                    <Link to="/dashboard" className="cursor-pointer text-slate-200 hover:text-white focus:bg-slate-800">
+                      <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link to="/tools/auction" className="cursor-pointer text-cyan-400 font-semibold focus:text-cyan-500">
-                      <Wrench className="mr-2 h-4 w-4" /><span>Live Auction Tool</span>
+                    <Link to="/tools/auction" className="cursor-pointer text-cyan-400 font-semibold focus:bg-slate-800">
+                      <Wrench className="mr-2 h-4 w-4" /> Live Auction Tool
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link to="/billing" className="cursor-pointer">
-                      <CreditCard className="mr-2 h-4 w-4" /><span>Billing & Plans</span>
+                    <Link to="/billing" className="cursor-pointer text-slate-200 hover:text-white focus:bg-slate-800">
+                      <CreditCard className="mr-2 h-4 w-4" /> Billing & Plans
                     </Link>
                   </DropdownMenuItem>
                   {isAdmin && (
                     <DropdownMenuItem asChild>
-                      <Link to="/admin" className="cursor-pointer text-cyan-400 font-semibold focus:text-cyan-500">
-                        <ShieldCheck className="mr-2 h-4 w-4" /><span>Admin Panel</span>
+                      <Link to="/admin" className="cursor-pointer text-cyan-400 font-semibold focus:bg-slate-800">
+                        <ShieldCheck className="mr-2 h-4 w-4" /> Admin Panel
                       </Link>
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer text-red-500 focus:text-red-500">
-                    <LogOut className="mr-2 h-4 w-4" /><span>Log out</span>
+                  <DropdownMenuSeparator className="bg-slate-700" />
+                  <DropdownMenuItem onClick={() => signOut()} className="cursor-pointer text-red-400 focus:bg-slate-800">
+                    <LogOut className="mr-2 h-4 w-4" /> Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -157,10 +141,8 @@ const Header = () => {
             ))}
             {user && (
               <>
-                <Link to="/tools/auction" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-semibold" onClick={() => setIsMenuOpen(false)}>
-                  🛠 Tools
-                </Link>
                 <Link to="/dashboard" className="text-slate-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+                <Link to="/billing" className="text-slate-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>Billing</Link>
                 {isAdmin && (
                   <Link to="/admin" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-medium" onClick={() => setIsMenuOpen(false)}>Admin Panel</Link>
                 )}
@@ -170,7 +152,7 @@ const Header = () => {
               </>
             )}
             {!user && (
-              <Link to="/login" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md text-base font-medium font-bold" onClick={() => setIsMenuOpen(false)}>Sign In</Link>
+              <Link to="/login" className="text-cyan-400 hover:text-cyan-300 block px-3 py-2 rounded-md font-bold" onClick={() => setIsMenuOpen(false)}>Sign In</Link>
             )}
           </div>
         </div>
