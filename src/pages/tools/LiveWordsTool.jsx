@@ -100,7 +100,7 @@ export default function LiveWordsTool() {
             <WordBoard letters={engine.letters} foundWords={engine.foundWords} phase={engine.phase} />
             <WordSettings engine={engine} />
           </div>
-          <WordCenter engine={engine} tiktok={tiktok} connError={connError} onClearError={() => setConnError(null)} />
+          <WordCenter engine={engine} tiktok={tiktok} connError={connError} onClearError={() => setConnError(null)} overlayUrl={overlayUrl} />
           <div className="w-80 border-l border-[#1e2240] flex flex-col overflow-hidden p-4">
             <WordFeed foundWords={engine.foundWords} leaderboard={engine.leaderboard} possibleWords={engine.possibleWords} phase={engine.phase} />
           </div>
@@ -109,3 +109,4 @@ export default function LiveWordsTool() {
     </GamePlanGate>
   );
 }
+

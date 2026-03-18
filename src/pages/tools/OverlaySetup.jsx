@@ -173,10 +173,61 @@ export default function OverlaySetup() {
           className="flex-1 accent-cyan-500" />
       </div>
 
-      <div className="flex items-center gap-2 text-green-400 text-sm font-semibold">
+
+      <div className="flex items-center gap-2 text-green-400 text-sm font-semibold mb-12">
         <div className="w-2.5 h-2.5 rounded-full bg-green-400 shadow-[0_0_8px_#00e676]" />
         Theme changes broadcast live via Supabase Realtime — no refresh needed
       </div>
+
+      {/* ── Games Overlay Section ─────────────────────────────────────── */}
+      <div className="border-t border-[#1e2240] pt-10">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xl">🔤</div>
+          <div>
+            <h2 className="font-mono font-black text-xl">Live Words Game Overlay</h2>
+            <p className="text-gray-500 text-sm">Your private browser source URL for the Live Words game</p>
+          </div>
+        </div>
+
+        {overlayToken ? (
+          <>
+            <div className="flex items-center gap-3 bg-[#10121f] border border-[#1e2240] rounded-xl px-4 py-3 mb-3 flex-wrap gap-y-2">
+              <input
+                type={showUrl ? 'text' : 'password'}
+                readOnly
+                value={`${window.location.origin}/games-overlay/live-words?token=${overlayToken}`}
+                className="flex-1 min-w-0 bg-transparent border-none outline-none text-gray-400 font-mono text-sm"
+              />
+              <button onClick={() => setShowUrl(v => !v)}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-cyan-700 text-black font-mono font-bold text-xs shrink-0">
+                👁 {showUrl ? 'Hide' : 'Show'}
+              </button>
+              <button onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/games-overlay/live-words?token=${overlayToken}`);
+                setCopied(true); setTimeout(() => setCopied(false), 2000);
+              }}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-700 to-red-800 text-white font-mono font-bold text-xs shrink-0">
+                {copied ? '✓ Copied!' : '📋 Copy'}
+              </button>
+              <button onClick={() => window.open(`/games-overlay/live-words?token=${overlayToken}`, '_blank')}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-700 to-pink-900 text-white font-mono font-bold text-xs shrink-0">
+                🖥 Preview
+              </button>
+            </div>
+            <div className="bg-red-950/20 border border-red-800/40 rounded-xl px-4 py-3 mb-3 text-red-300 text-sm">
+              <strong className="text-red-500">⚠ SECURITY:</strong> This URL is unique to your account. <strong>Never share it.</strong>
+            </div>
+            <div className="bg-black/30 border border-[#1e2240] rounded-xl px-4 py-3 text-gray-500 text-sm">
+              <strong className="text-gray-400">Setup:</strong> TikTok Live Studio → Add Source → Web Source → Paste URL → Size: <span className="text-cyan-500 font-mono">1920 × 1080</span>
+            </div>
+          </>
+        ) : (
+          <div className="bg-yellow-950/20 border border-yellow-800/40 rounded-xl px-4 py-3 text-yellow-300 text-sm">
+            ⚠ Generating your unique overlay URL...
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

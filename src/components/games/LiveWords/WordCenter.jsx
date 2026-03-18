@@ -1,15 +1,14 @@
 /**
  * WordCenter — TikTok connect, timer display, round controls, rejected feed
+ * overlayUrl prop is passed from LiveWordsTool (includes ?token=)
  */
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
 
-export default function WordCenter({ engine, tiktok, connError, onClearError }) {
+export default function WordCenter({ engine, tiktok, connError, onClearError, overlayUrl }) {
   const { phase, remaining, startRound, finishRound, nextRound, fullReset } = engine;
   const { status, connect, disconnect, injectChat, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
-  const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
 
   const isRunning  = phase === 'running';
   const isFinished = phase === 'finished';
@@ -31,43 +30,54 @@ export default function WordCenter({ engine, tiktok, connError, onClearError }) 
     connect(usernameInput.trim());
   };
 
+  const copyOverlayUrl = () => {
+    if (!overlayUrl) return;
+    navigator.clipboard.writeText(overlayUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
 
-      {/* Overlay links */}
-      <div className="flex gap-2">
-        <button onClick={() => window.open('/games-overlay/live-words', '_blank')}
-          className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400
-            hover:border-cyan-600 hover:text-cyan-400 font-mono text-xs font-bold tracking-widest
-            flex items-center justify-center gap-2 transition-all">
-          🖥 Overlay Preview
-        </button>
-        <button onClick={() => navigate('/tools/overlay-setup')}
-          className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400
-            hover:border-purple-600 hover:text-purple-400 font-mono text-xs font-bold tracking-widest
-            flex items-center justify-center gap-2 transition-all">
-          🎨 Overlay Setup
-        </button>
+      {/* Overlay URL — with token, per user */}
+      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
+        <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">
+          🖥 Your Personal Overlay URL
+        </p>
+        {overlayUrl ? (
+          <div className="flex gap-2">
+            <button onClick={() => window.open(overlayUrl, '_blank')}
+              className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#0a0b14] text-cyan-400
+                hover:border-cyan-600 font-mono text-xs font-bold tracking-widest transition-all">
+              🖥 Preview
+            </button>
+            <button onClick={copyOverlayUrl}
+              className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#0a0b14] text-gray-400
+                hover:border-gray-500 font-mono text-xs font-bold tracking-widest transition-all">
+              {copied ? '✓ Copied!' : '📋 Copy URL'}
+            </button>
+          </div>
+        ) : (
+          <p className="text-gray-600 text-xs">Generating your overlay URL...</p>
+        )}
+        <p className="text-[10px] text-gray-700 mt-2">
+          Add as Browser Source in TikTok Live Studio · Size: 1920×1080
+        </p>
       </div>
 
       {/* Timer display */}
       <div className={`rounded-xl border p-4 flex items-center justify-center flex-col gap-1
-        ${isRunning
-          ? 'bg-green-950/20 border-green-900/30'
-          : isFinished
-          ? 'bg-red-950/20 border-red-900/30'
-          : 'bg-[#151828] border-[#1e2240]'}`}>
+        ${isRunning ? 'bg-green-950/20 border-green-900/30'
+        : isFinished ? 'bg-red-950/20 border-red-900/30'
+        : 'bg-[#151828] border-[#1e2240]'}`}>
         <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Time Remaining</span>
         <span className={`font-mono font-black text-5xl
           ${isRunning ? 'text-green-400' : isFinished ? 'text-red-400' : 'text-gray-600'}`}>
           {mins}:{secs}
         </span>
-        {isFinished && (
-          <span className="text-red-400 text-xs font-bold tracking-widest animate-pulse">ROUND OVER</span>
-        )}
+        {isFinished && <span className="text-red-400 text-xs font-bold tracking-widest animate-pulse">ROUND OVER</span>}
       </div>
-
 
       {/* Error banner */}
       {connError && (
@@ -93,18 +103,14 @@ export default function WordCenter({ engine, tiktok, connError, onClearError }) 
         </button>
         {status !== 'connected' && (
           <div className="flex gap-2 mt-3">
-            <input
-              value={usernameInput}
-              onChange={e => setUsernameInput(e.target.value)}
+            <input value={usernameInput} onChange={e => setUsernameInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleConnect()}
               placeholder="@yourtiktokusername"
               className="flex-1 bg-[#0a0b14] border border-[#1e2240] rounded-lg px-3 py-2
-                text-white placeholder:text-gray-600 font-semibold focus:border-cyan-500 outline-none"
-            />
+                text-white placeholder:text-gray-600 font-semibold focus:border-cyan-500 outline-none" />
           </div>
         )}
       </div>
-
 
       {/* Round Controls */}
       <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
@@ -136,13 +142,10 @@ export default function WordCenter({ engine, tiktok, connError, onClearError }) 
         </div>
       </div>
 
-
       {/* Rejected Feed */}
       {engine.rejectedFeed.length > 0 && (
         <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-          <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">
-            Recent Rejects
-          </p>
+          <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">Recent Rejects</p>
           <div className="space-y-1 max-h-28 overflow-y-auto">
             {engine.rejectedFeed.slice(0, 10).map((r, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
@@ -156,13 +159,11 @@ export default function WordCenter({ engine, tiktok, connError, onClearError }) 
         </div>
       )}
 
-      {/* Dev inject */}
       {import.meta.env.DEV && (
         <button
           onClick={() => tiktok.injectChat(`viewer${Math.floor(Math.random()*999)}`,
             `${engine.chatCommand} ${engine.possibleWords[Math.floor(Math.random()*engine.possibleWords.length)] || 'end'}`)}
-          className="text-xs text-gray-700 hover:text-gray-500 border border-gray-800
-            rounded-lg py-2 text-center transition-colors">
+          className="text-xs text-gray-700 hover:text-gray-500 border border-gray-800 rounded-lg py-2 text-center transition-colors">
           🧪 Inject Test Chat (dev only)
         </button>
       )}
