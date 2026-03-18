@@ -13,8 +13,8 @@ const timerColor = (remaining, snipeDelay) => {
 };
 
 export default function AuctionLeft({ engine }) {
-  const { remaining, snipeDelay, totalDuration, minCoins,
-          setDuration, setSnipeDelay, setMinCoins, sessionHistory } = engine;
+  const { remaining, snipeDelay, snipeMode, totalDuration, minCoins,
+          setDuration, setSnipeDelay, setSnipeMode, setMinCoins, sessionHistory } = engine;
 
   const durMin = Math.floor(totalDuration / 60);
   const durSec = totalDuration % 60;
@@ -39,22 +39,16 @@ export default function AuctionLeft({ engine }) {
         <div className="text-xs text-gray-400 font-semibold mb-2">Match Duration</div>
         <div className="flex items-center gap-2">
           <div>
-            <input
-              type="number" min="0" max="99"
-              defaultValue={durMin}
+            <input type="number" min="0" max="99" defaultValue={durMin}
               onChange={e => setDuration((+e.target.value || 0) * 60 + durSec)}
-              className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded-lg text-center font-mono text-xl font-black text-white p-2 outline-none focus:border-cyan-500"
-            />
+              className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded-lg text-center font-mono text-xl font-black text-white p-2 outline-none focus:border-cyan-500" />
             <div className="text-[10px] text-gray-500 text-center mt-1">min</div>
           </div>
           <div className="font-mono text-xl font-black text-gray-500 pb-3">:</div>
           <div>
-            <input
-              type="number" min="0" max="59"
-              defaultValue={durSec}
+            <input type="number" min="0" max="59" defaultValue={durSec}
               onChange={e => setDuration(durMin * 60 + (+e.target.value || 0))}
-              className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded-lg text-center font-mono text-xl font-black text-white p-2 outline-none focus:border-cyan-500"
-            />
+              className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded-lg text-center font-mono text-xl font-black text-white p-2 outline-none focus:border-cyan-500" />
             <div className="text-[10px] text-gray-500 text-center mt-1">sec</div>
           </div>
         </div>
@@ -64,14 +58,38 @@ export default function AuctionLeft({ engine }) {
       <div className="bg-red-950/20 border border-red-900/40 rounded-xl p-4">
         <div className="text-[11px] font-bold tracking-widest text-red-400 uppercase mb-3">🛡 Snipe Delay</div>
         <div className="text-center">
-          <input
-            type="number" min="1" max="300"
-            value={snipeDelay}
+          <input type="number" min="1" max="300" value={snipeDelay}
             onChange={e => setSnipeDelay(+e.target.value || 5)}
-            className="w-24 bg-[#0a0b14] border border-red-900/40 rounded-lg text-center font-mono text-2xl font-black text-red-400 p-2 outline-none"
-          />
+            className="w-24 bg-[#0a0b14] border border-red-900/40 rounded-lg text-center font-mono text-2xl font-black text-red-400 p-2 outline-none" />
           <div className="text-xs text-red-900 mt-1">sec</div>
           <div className="text-[10px] text-red-900/70 mt-1">Added when entry in last seconds</div>
+        </div>
+      </div>
+
+      {/* Snipe Mode Toggle */}
+      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
+        <div className="text-[11px] font-bold tracking-widest text-yellow-400 uppercase mb-3">⚔ Snipe Mode</div>
+        <div className="flex flex-col gap-2">
+          <button onClick={() => setSnipeMode('king')}
+            className={`w-full py-2.5 rounded-xl font-mono font-black text-xs tracking-widest transition-all border
+              ${snipeMode === 'king'
+                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 border-yellow-500 text-black shadow-lg shadow-yellow-500/20'
+                : 'bg-[#0a0b14] border-[#1e2240] text-gray-500 hover:border-yellow-700 hover:text-yellow-500'}`}>
+            👑 King of the Hill
+          </button>
+          <div className={`text-[10px] text-center transition-colors ${snipeMode === 'king' ? 'text-yellow-700' : 'text-gray-700'}`}>
+            Every bid resets the snipe timer
+          </div>
+          <button onClick={() => setSnipeMode('standard')}
+            className={`w-full py-2.5 rounded-xl font-mono font-black text-xs tracking-widest transition-all border mt-1
+              ${snipeMode === 'standard'
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-500 text-white shadow-lg shadow-blue-500/20'
+                : 'bg-[#0a0b14] border-[#1e2240] text-gray-500 hover:border-blue-700 hover:text-blue-400'}`}>
+            🏁 Standard Mode
+          </button>
+          <div className={`text-[10px] text-center transition-colors ${snipeMode === 'standard' ? 'text-blue-700' : 'text-gray-700'}`}>
+            Adds time once, then expires — last leader wins
+          </div>
         </div>
       </div>
 
@@ -84,12 +102,9 @@ export default function AuctionLeft({ engine }) {
         <div className="flex items-center gap-2">
           <input type="checkbox" defaultChecked className="accent-cyan-500 w-4 h-4" />
           <span className="font-bold text-sm flex-1">💎 MINIMUM</span>
-          <input
-            type="number" min="1"
-            value={minCoins}
+          <input type="number" min="1" value={minCoins}
             onChange={e => setMinCoins(+e.target.value || 1)}
-            className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded text-center font-mono font-bold text-sm text-white p-1 outline-none"
-          />
+            className="w-14 bg-[#0a0b14] border border-[#1e2240] rounded text-center font-mono font-bold text-sm text-white p-1 outline-none" />
           <span className="text-xs text-gray-500">coins</span>
         </div>
       </div>

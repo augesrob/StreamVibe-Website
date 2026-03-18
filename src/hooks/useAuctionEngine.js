@@ -7,10 +7,11 @@ const COLORS = [
 ];
 
 export function useAuctionEngine() {
-  const [phase, setPhase]           = useState('idle');   // idle|running|paused|snipe|finished
+  const [phase, setPhase]           = useState('idle');
   const [remaining, setRemaining]   = useState(120);
   const [totalDuration, setTotalDuration] = useState(120);
   const [snipeDelay, setSnipeDelay] = useState(20);
+  const [snipeMode, setSnipeMode]   = useState('king'); // 'king' | 'standard'
   const [minCoins, setMinCoins]     = useState(1);
   const [leader, setLeader]         = useState(null);
   const [bids, setBids]             = useState([]);
@@ -18,17 +19,19 @@ export function useAuctionEngine() {
   const [theme, setTheme]           = useState('dark');
   const [newLeaderName, setNewLeaderName] = useState(null);
 
-  const phaseRef    = useRef('idle');
-  const remainRef   = useRef(120);
-  const snipeRef    = useRef(20);
-  const leaderRef   = useRef(null);
-  const bidCountRef = useRef(0);
-  const timerRef    = useRef(null);
+  const phaseRef     = useRef('idle');
+  const remainRef    = useRef(120);
+  const snipeRef     = useRef(20);
+  const snipeModeRef = useRef('king');
+  const snipeTriggeredRef = useRef(false); // for standard mode - only add time once
+  const leaderRef    = useRef(null);
+  const bidCountRef  = useRef(0);
+  const timerRef     = useRef(null);
 
-  // keep refs in sync
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { remainRef.current = remaining; }, [remaining]);
   useEffect(() => { snipeRef.current = snipeDelay; }, [snipeDelay]);
+  useEffect(() => { snipeModeRef.current = snipeMode; }, [snipeMode]);
   useEffect(() => { leaderRef.current = leader; }, [leader]);
 
   const stopTimer = useCallback(() => {
@@ -68,6 +71,7 @@ export function useAuctionEngine() {
       setLeader(null);
       setBids([]);
       bidCountRef.current = 0;
+      snipeTriggeredRef.current = false;
     }
     setPhase('running');
     phaseRef.current = 'running';
@@ -110,6 +114,7 @@ export function useAuctionEngine() {
     setLeader(null);
     setBids([]);
     bidCountRef.current = 0;
+    snipeTriggeredRef.current = false;
   }, [stopTimer, totalDuration]);
 
   const adjust = useCallback((delta) => {
@@ -128,26 +133,42 @@ export function useAuctionEngine() {
     }
   }, []);
 
-  /** Called by TikTok connector when a valid gift arrives */
   const processBid = useCallback((user, coins) => {
     const p = phaseRef.current;
     if (p !== 'running' && p !== 'snipe') return;
     if (coins < minCoins) return;
 
-    // Snipe protection
-    if (p === 'running' && remainRef.current <= snipeRef.current) {
-      setPhase('snipe');
-      phaseRef.current = 'snipe';
-      setRemaining(snipeRef.current);
-      remainRef.current = snipeRef.current;
-    } else if (p === 'snipe') {
-      setRemaining(snipeRef.current);
-      remainRef.current = snipeRef.current;
+    const mode = snipeModeRef.current;
+    const inSnipeZone = remainRef.current <= snipeRef.current;
+
+    if (mode === 'king') {
+      // ── King of the Hill: every bid in snipe window resets timer ──
+      if (p === 'running' && inSnipeZone) {
+        setPhase('snipe');
+        phaseRef.current = 'snipe';
+        setRemaining(snipeRef.current);
+        remainRef.current = snipeRef.current;
+      } else if (p === 'snipe') {
+        // Reset to full snipe delay on every new bid
+        setRemaining(snipeRef.current);
+        remainRef.current = snipeRef.current;
+      }
+    } else {
+      // ── Standard: add snipe time ONCE when first entering zone, then runs out ──
+      if (inSnipeZone && !snipeTriggeredRef.current) {
+        snipeTriggeredRef.current = true;
+        setPhase('snipe');
+        phaseRef.current = 'snipe';
+        // Add snipeDelay on top of remaining time (one-time boost)
+        const boosted = remainRef.current + snipeRef.current;
+        setRemaining(boosted);
+        remainRef.current = boosted;
+      }
+      // No reset on further bids — timer just runs down to 0
     }
 
     const color = COLORS[bidCountRef.current % COLORS.length];
     bidCountRef.current++;
-
     const bid = { user, coins, color, id: Date.now() };
     setBids(prev => [bid, ...prev].slice(0, 50));
 
@@ -163,17 +184,15 @@ export function useAuctionEngine() {
     }
   }, [minCoins]);
 
-  // cleanup on unmount
   useEffect(() => () => stopTimer(), [stopTimer]);
 
   return {
-    // state
-    phase, remaining, totalDuration, snipeDelay, minCoins,
+    phase, remaining, totalDuration, snipeDelay, snipeMode, minCoins,
     leader, bids, sessionHistory, theme, newLeaderName,
-    // actions
     start, pause, finish, restart, adjust,
     setDuration,
     setSnipeDelay: useCallback(v => { setSnipeDelay(v); snipeRef.current = v; }, []),
+    setSnipeMode:  useCallback(v => { setSnipeMode(v); snipeModeRef.current = v; }, []),
     setMinCoins:   useCallback(v => setMinCoins(Math.max(1, v)), []),
     setTheme,
     processBid,
