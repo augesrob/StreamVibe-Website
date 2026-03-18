@@ -10,80 +10,74 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { AlertTriangle } from 'lucide-react';
 
 // Pages
-import Home                from '@/pages/Home';
-import Terms               from '@/pages/Terms';
-import Privacy             from '@/pages/Privacy';
-import AuthCallback        from '@/pages/AuthCallback';
-import Dashboard           from '@/pages/Dashboard';
-import Billing             from '@/pages/Billing';
-import AdminPanel          from '@/pages/AdminPanel';
-import DebugUser           from '@/pages/DebugUser';
-import LoginPage           from '@/pages/LoginPage';
-import SignupPage          from '@/pages/SignupPage';
+import Home                  from '@/pages/Home';
+import Terms                 from '@/pages/Terms';
+import Privacy               from '@/pages/Privacy';
+import AuthCallback          from '@/pages/AuthCallback';
+import Dashboard             from '@/pages/Dashboard';
+import Billing               from '@/pages/Billing';
+import AdminPanel            from '@/pages/AdminPanel';
+import DebugUser             from '@/pages/DebugUser';
+import LoginPage             from '@/pages/LoginPage';
+import SignupPage            from '@/pages/SignupPage';
 import EmailVerificationPage from '@/pages/EmailVerificationPage';
-import PaymentSuccess      from '@/pages/PaymentSuccess';
-import PaymentCancel       from '@/pages/PaymentCancel';
-import TikTokLinkingPage   from '@/pages/TikTokLinkingPage';
-import ApiDocumentation    from '@/components/admin/ApiDocumentation';
+import PaymentSuccess        from '@/pages/PaymentSuccess';
+import PaymentCancel         from '@/pages/PaymentCancel';
+import TikTokLinkingPage     from '@/pages/TikTokLinkingPage';
+import ApiDocumentation      from '@/components/admin/ApiDocumentation';
 
 // Tools
-import AuctionTool     from '@/pages/tools/AuctionTool';
-import AuctionOverlay  from '@/pages/tools/AuctionOverlay';
-import OverlaySetup    from '@/pages/tools/OverlaySetup';
+import AuctionTool    from '@/pages/tools/AuctionTool';
+import OverlaySetup   from '@/pages/tools/OverlaySetup';
+import LiveWordsTool  from '@/pages/tools/LiveWordsTool';
 
-// ── Games ──
-import LiveWordsTool      from '@/pages/tools/LiveWordsTool';
-import LiveWordsOverlay   from '@/pages/tools/LiveWordsOverlay';
+// Overlays — standalone pages, NO header/footer
+import AuctionOverlay    from '@/pages/tools/AuctionOverlay';
+import LiveWordsOverlay  from '@/pages/tools/LiveWordsOverlay';
 
-function AppRoutes() {
+// ── Routes that include Header + Footer ─────────────────────────────────────
+function MainRoutes() {
   return (
     <Routes>
-      {/* Public */}
       <Route path="/"                    element={<Home />} />
       <Route path="/terms"               element={<Terms />} />
       <Route path="/privacy"             element={<Privacy />} />
       <Route path="/auth/callback"       element={<AuthCallback />} />
-
-      {/* Auth */}
       <Route path="/login"               element={<LoginPage />} />
       <Route path="/signup"              element={<SignupPage />} />
       <Route path="/email-verification"  element={<EmailVerificationPage />} />
-
-      {/* Payment */}
       <Route path="/payment-success"     element={<PaymentSuccess />} />
       <Route path="/payment-cancel"      element={<PaymentCancel />} />
-
-      {/* TikTok Linking */}
-      <Route path="/tiktok-linking" element={
-        <ProtectedRoute><TikTokLinkingPage /></ProtectedRoute>
-      } />
-
-      {/* Protected */}
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/billing"   element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-      <Route path="/admin"     element={<ProtectedRoute requireAdmin={true}><AdminPanel /></ProtectedRoute>} />
-      <Route path="/api-docs"  element={
+      <Route path="/tiktok-linking"      element={<ProtectedRoute><TikTokLinkingPage /></ProtectedRoute>} />
+      <Route path="/dashboard"           element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/billing"             element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+      <Route path="/admin"               element={<ProtectedRoute requireAdmin={true}><AdminPanel /></ProtectedRoute>} />
+      <Route path="/admin-debug"         element={<ProtectedRoute><DebugUser /></ProtectedRoute>} />
+      <Route path="/api-docs"            element={
         <ProtectedRoute>
-          <div className="pt-24 px-4 bg-[#0a0a0f] min-h-screen">
-            <ApiDocumentation />
-          </div>
+          <div className="pt-24 px-4 bg-[#0a0a0f] min-h-screen"><ApiDocumentation /></div>
         </ProtectedRoute>
       } />
-      <Route path="/admin-debug" element={<ProtectedRoute><DebugUser /></ProtectedRoute>} />
-
-      {/* ── StreamVibe Tools ── */}
       <Route path="/tools/auction"       element={<ProtectedRoute><AuctionTool /></ProtectedRoute>} />
       <Route path="/tools/overlay-setup" element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
-      <Route path="/overlay"             element={<AuctionOverlay />} />
+      <Route path="/tools/games/live-words" element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
+    </Routes>
+  );
+}
 
-      {/* ── StreamVibe Games ── */}
-      <Route path="/tools/games/live-words"  element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
-      {/* Overlays are public — browser source URLs used in TikTok Live Studio */}
+// ── Overlay routes — NO header, NO footer, transparent background ────────────
+function OverlayRoutes() {
+  return (
+    <Routes>
+      {/* Auction overlay — per-user via ?token= */}
+      <Route path="/overlay" element={<AuctionOverlay />} />
+      {/* Live Words overlay — per-user via ?token= */}
       <Route path="/games-overlay/live-words" element={<LiveWordsOverlay />} />
     </Routes>
   );
 }
 
+// ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -100,19 +94,37 @@ function App() {
           <div className="fixed top-0 left-0 w-full z-[100] p-2 bg-red-600 text-white
             font-bold text-center flex items-center justify-center gap-2">
             <AlertTriangle className="w-5 h-5" />
-            CRITICAL: Supabase Configuration Missing. App will not function correctly.
+            CRITICAL: Supabase Configuration Missing.
           </div>
         )}
-        <div className="min-h-screen bg-slate-950 flex flex-col">
-          <Header />
-          <main className="flex-grow">
-            <AppRoutes />
-          </main>
-          <Footer />
-          <Toaster />
-        </div>
+
+        {/* Check if current path is an overlay — render without chrome */}
+        <OverlayWrapper />
       </Router>
     </AuthProvider>
+  );
+}
+
+import { useLocation } from 'react-router-dom';
+
+function OverlayWrapper() {
+  const { pathname } = useLocation();
+  const isOverlay = pathname === '/overlay' || pathname.startsWith('/games-overlay/');
+
+  if (isOverlay) {
+    // Pure transparent canvas — no header, no footer, no background
+    return <OverlayRoutes />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col">
+      <Header />
+      <main className="flex-grow">
+        <MainRoutes />
+      </main>
+      <Footer />
+      <Toaster />
+    </div>
   );
 }
 
