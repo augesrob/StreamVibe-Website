@@ -52,3 +52,15 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* ── Overlay mode — used by browser source pages ── */
+/* Removes ALL backgrounds so TikTok Live Studio sees a transparent canvas */
+html.overlay-mode,
+html.overlay-mode body,
+html.overlay-mode #root {
+  background: transparent !important;
+  background-color: transparent !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}

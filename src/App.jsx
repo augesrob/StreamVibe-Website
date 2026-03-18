@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/Header';
@@ -27,57 +27,80 @@ import TikTokLinkingPage     from '@/pages/TikTokLinkingPage';
 import ApiDocumentation      from '@/components/admin/ApiDocumentation';
 
 // Tools
-import AuctionTool    from '@/pages/tools/AuctionTool';
-import OverlaySetup   from '@/pages/tools/OverlaySetup';
-import LiveWordsTool  from '@/pages/tools/LiveWordsTool';
+import AuctionTool   from '@/pages/tools/AuctionTool';
+import OverlaySetup  from '@/pages/tools/OverlaySetup';
+import LiveWordsTool from '@/pages/tools/LiveWordsTool';
 
-// Overlays — standalone pages, NO header/footer
-import AuctionOverlay    from '@/pages/tools/AuctionOverlay';
-import LiveWordsOverlay  from '@/pages/tools/LiveWordsOverlay';
+// Standalone overlay pages — pure transparent canvases, no chrome
+import AuctionOverlay   from '@/pages/tools/AuctionOverlay';
+import LiveWordsOverlay from '@/pages/tools/LiveWordsOverlay';
 
-// ── Routes that include Header + Footer ─────────────────────────────────────
-function MainRoutes() {
+// Paths that are browser-source overlays — no Header/Footer/background
+const OVERLAY_PATHS = ['/overlay', '/games-overlay/live-words'];
+function isOverlayPath(path) {
+  return OVERLAY_PATHS.some(p => path === p || path.startsWith(p + '?'));
+}
+
+function AppInner() {
+  const { pathname } = useLocation();
+  const overlay = isOverlayPath(pathname);
+
+  // Toggle overlay-mode class on <html> — forces transparent bg via CSS
+  useEffect(() => {
+    if (overlay) {
+      document.documentElement.classList.add('overlay-mode');
+    } else {
+      document.documentElement.classList.remove('overlay-mode');
+    }
+    return () => document.documentElement.classList.remove('overlay-mode');
+  }, [overlay]);
+
+  // ── Overlay routes — zero chrome, transparent canvas ────────────────────
+  if (overlay) {
+    return (
+      <Routes>
+        <Route path="/overlay"                    element={<AuctionOverlay />} />
+        <Route path="/games-overlay/live-words"   element={<LiveWordsOverlay />} />
+      </Routes>
+    );
+  }
+
+  // ── Normal app — Header + Footer ─────────────────────────────────────────
   return (
-    <Routes>
-      <Route path="/"                    element={<Home />} />
-      <Route path="/terms"               element={<Terms />} />
-      <Route path="/privacy"             element={<Privacy />} />
-      <Route path="/auth/callback"       element={<AuthCallback />} />
-      <Route path="/login"               element={<LoginPage />} />
-      <Route path="/signup"              element={<SignupPage />} />
-      <Route path="/email-verification"  element={<EmailVerificationPage />} />
-      <Route path="/payment-success"     element={<PaymentSuccess />} />
-      <Route path="/payment-cancel"      element={<PaymentCancel />} />
-      <Route path="/tiktok-linking"      element={<ProtectedRoute><TikTokLinkingPage /></ProtectedRoute>} />
-      <Route path="/dashboard"           element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/billing"             element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-      <Route path="/admin"               element={<ProtectedRoute requireAdmin={true}><AdminPanel /></ProtectedRoute>} />
-      <Route path="/admin-debug"         element={<ProtectedRoute><DebugUser /></ProtectedRoute>} />
-      <Route path="/api-docs"            element={
-        <ProtectedRoute>
-          <div className="pt-24 px-4 bg-[#0a0a0f] min-h-screen"><ApiDocumentation /></div>
-        </ProtectedRoute>
-      } />
-      <Route path="/tools/auction"       element={<ProtectedRoute><AuctionTool /></ProtectedRoute>} />
-      <Route path="/tools/overlay-setup" element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
-      <Route path="/tools/games/live-words" element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
-    </Routes>
+    <div className="min-h-screen bg-slate-950 flex flex-col">
+      <Header />
+      <main className="flex-grow">
+        <Routes>
+          <Route path="/"                    element={<Home />} />
+          <Route path="/terms"               element={<Terms />} />
+          <Route path="/privacy"             element={<Privacy />} />
+          <Route path="/auth/callback"       element={<AuthCallback />} />
+          <Route path="/login"               element={<LoginPage />} />
+          <Route path="/signup"              element={<SignupPage />} />
+          <Route path="/email-verification"  element={<EmailVerificationPage />} />
+          <Route path="/payment-success"     element={<PaymentSuccess />} />
+          <Route path="/payment-cancel"      element={<PaymentCancel />} />
+          <Route path="/tiktok-linking"      element={<ProtectedRoute><TikTokLinkingPage /></ProtectedRoute>} />
+          <Route path="/dashboard"           element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/billing"             element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+          <Route path="/admin"               element={<ProtectedRoute requireAdmin={true}><AdminPanel /></ProtectedRoute>} />
+          <Route path="/admin-debug"         element={<ProtectedRoute><DebugUser /></ProtectedRoute>} />
+          <Route path="/api-docs"            element={
+            <ProtectedRoute>
+              <div className="pt-24 px-4 bg-[#0a0a0f] min-h-screen"><ApiDocumentation /></div>
+            </ProtectedRoute>
+          } />
+          <Route path="/tools/auction"          element={<ProtectedRoute><AuctionTool /></ProtectedRoute>} />
+          <Route path="/tools/overlay-setup"    element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
+          <Route path="/tools/games/live-words" element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
+        </Routes>
+      </main>
+      <Footer />
+      <Toaster />
+    </div>
   );
 }
 
-// ── Overlay routes — NO header, NO footer, transparent background ────────────
-function OverlayRoutes() {
-  return (
-    <Routes>
-      {/* Auction overlay — per-user via ?token= */}
-      <Route path="/overlay" element={<AuctionOverlay />} />
-      {/* Live Words overlay — per-user via ?token= */}
-      <Route path="/games-overlay/live-words" element={<LiveWordsOverlay />} />
-    </Routes>
-  );
-}
-
-// ── Root App ─────────────────────────────────────────────────────────────────
 function App() {
   const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -97,34 +120,9 @@ function App() {
             CRITICAL: Supabase Configuration Missing.
           </div>
         )}
-
-        {/* Check if current path is an overlay — render without chrome */}
-        <OverlayWrapper />
+        <AppInner />
       </Router>
     </AuthProvider>
-  );
-}
-
-import { useLocation } from 'react-router-dom';
-
-function OverlayWrapper() {
-  const { pathname } = useLocation();
-  const isOverlay = pathname === '/overlay' || pathname.startsWith('/games-overlay/');
-
-  if (isOverlay) {
-    // Pure transparent canvas — no header, no footer, no background
-    return <OverlayRoutes />;
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
-      <Header />
-      <main className="flex-grow">
-        <MainRoutes />
-      </main>
-      <Footer />
-      <Toaster />
-    </div>
   );
 }
 
