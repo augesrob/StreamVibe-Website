@@ -34,7 +34,7 @@ const AuctionTool = () => {
   ]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-[#0a0b14] text-white overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-64px)] mt-16 bg-[#0a0b14] text-white overflow-hidden">
       <Helmet><title>Live Auction — StreamVibe Tools</title></Helmet>
 
       {engine.newLeaderName && <NewLeaderPop name={engine.newLeaderName} />}
@@ -49,3 +49,4 @@ const AuctionTool = () => {
 };
 
 export default AuctionTool;
+

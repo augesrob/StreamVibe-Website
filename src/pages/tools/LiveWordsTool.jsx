@@ -67,7 +67,7 @@ export default function LiveWordsTool() {
 
   return (
     <GamePlanGate game={GAME}>
-      <div className="flex flex-col h-[calc(100vh-64px)] bg-[#0a0b14] text-white overflow-hidden">
+      <div className="flex flex-col h-[calc(100vh-64px)] mt-16 bg-[#0a0b14] text-white overflow-hidden">
         <Helmet><title>Live Words — StreamVibe Games</title></Helmet>
 
         <div className="flex items-center gap-3 px-5 py-3 border-b border-[#1e2240] bg-[#0d0e1a] flex-shrink-0">
@@ -109,5 +109,6 @@ export default function LiveWordsTool() {
     </GamePlanGate>
   );
 }
+
 
 
