@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function AuctionCenter({ engine, tiktok, connError, onClearError }) {
+export default function AuctionCenter({ engine, tiktok, connError, onClearError, overlayUrl }) {
   const { phase, start, pause, finish, restart, adjust } = engine;
   const { status, connect, disconnect, injectTestBid, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
+  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
   const isRunning  = phase === 'running' || phase === 'snipe';
@@ -21,6 +22,13 @@ export default function AuctionCenter({ engine, tiktok, connError, onClearError 
     connect(usernameInput.trim());
   };
 
+  const copyOverlayUrl = () => {
+    if (!overlayUrl) return;
+    navigator.clipboard.writeText(overlayUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const statusDot = {
     disconnected: 'bg-gray-600',
     connecting:   'bg-orange-500 animate-pulse',
@@ -31,19 +39,29 @@ export default function AuctionCenter({ engine, tiktok, connError, onClearError 
   return (
     <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
 
-      {/* Top bar — overlay links */}
+      {/* Top bar — overlay links with token */}
       <div className="flex gap-2">
-        <button onClick={() => window.open('/overlay', '_blank')}
+        <button
+          onClick={() => overlayUrl && window.open(overlayUrl, '_blank')}
+          disabled={!overlayUrl}
           className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400
             hover:border-cyan-600 hover:text-cyan-400 font-mono text-xs font-bold tracking-widest
-            flex items-center justify-center gap-2 transition-all">
+            flex items-center justify-center gap-2 transition-all disabled:opacity-40">
           🖥 Overlay Preview
+        </button>
+        <button
+          onClick={copyOverlayUrl}
+          disabled={!overlayUrl}
+          className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400
+            hover:border-green-600 hover:text-green-400 font-mono text-xs font-bold tracking-widest
+            flex items-center justify-center gap-2 transition-all disabled:opacity-40">
+          {copied ? '✓ Copied!' : '📋 Copy URL'}
         </button>
         <button onClick={() => navigate('/tools/overlay-setup')}
           className="flex-1 py-2 rounded-lg border border-[#1e2240] bg-[#151828] text-gray-400
             hover:border-purple-600 hover:text-purple-400 font-mono text-xs font-bold tracking-widest
             flex items-center justify-center gap-2 transition-all">
-          🎨 Overlay Setup
+          🎨 Setup
         </button>
       </div>
 
@@ -141,7 +159,6 @@ export default function AuctionCenter({ engine, tiktok, connError, onClearError 
         </div>
       </div>
 
-      {/* Dev test bid */}
       {import.meta.env.DEV && (
         <button
           onClick={() => injectTestBid(`user${Math.floor(Math.random()*999)}`, Math.floor(Math.random()*500)+50)}
