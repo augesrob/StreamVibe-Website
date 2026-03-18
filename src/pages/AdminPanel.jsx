@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { supabase } from '@/lib/customSupabaseClient';
+import { adminSupabase } from '@/lib/adminSupabaseClient';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,14 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { Shield, Users, Key, Loader2, RefreshCw, Copy, CheckCircle, XCircle, Clock,
-  CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, Mail, ChevronDown, ChevronUp,
-  X, BookOpen, Download, Package, Plus, Save, DollarSign, Star, AlertTriangle, Unlock } from 'lucide-react';
+  CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, ChevronDown, ChevronUp,
+  X, Plus, Save, DollarSign, Star, AlertTriangle, Unlock } from 'lucide-react';
 
 const KEY_STATUS_META = {
-  inactive: { label: 'Inactive', color: 'text-slate-400', bg: 'bg-slate-800', icon: Clock },
-  active:   { label: 'Active',   color: 'text-green-400', bg: 'bg-green-900/40', icon: CheckCircle },
-  expired:  { label: 'Expired',  color: 'text-orange-400', bg: 'bg-orange-900/30', icon: XCircle },
-  banned:   { label: 'Banned',   color: 'text-red-400',   bg: 'bg-red-900/30', icon: XCircle },
+  inactive: { label: 'Inactive', color: 'text-slate-400', bg: 'bg-slate-800' },
+  active:   { label: 'Active',   color: 'text-green-400', bg: 'bg-green-900/40' },
+  expired:  { label: 'Expired',  color: 'text-orange-400', bg: 'bg-orange-900/30' },
+  banned:   { label: 'Banned',   color: 'text-red-400',   bg: 'bg-red-900/30' },
 };
 const TIER_COLORS = {
   free: 'text-slate-400 bg-slate-800', basic: 'text-blue-300 bg-blue-900/40',
@@ -24,33 +24,25 @@ const TIER_COLORS = {
 };
 const TIERS = ['free', 'basic', 'pro', 'legend'];
 const INTERVALS = ['monthly', 'quarterly', 'yearly', 'lifetime', 'one-time'];
-
-function cn(...classes) { return classes.filter(Boolean).join(' '); }
+function cn(...c) { return c.filter(Boolean).join(' '); }
 function generateKeyCode() {
-  return 'SV-' + Array.from({ length: 4 }, () => Math.random().toString(36).toUpperCase().substring(2, 6)).join('-');
-}
-async function adminFetch(url, method, body, token) {
-  return fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  return 'SV-' + Array.from({length:4}, () => Math.random().toString(36).toUpperCase().substring(2,6)).join('-');
 }
 
-// ── User Edit Modal ──────────────────────────────────────────────────────────
-function UserEditModal({ user, plans, token, onClose, onSaved, onRefresh, toast }) {
+// ── User Edit Modal ───────────────────────────────────────────────────────────
+function UserEditModal({ user, plans, onClose, onSaved, onRefresh, toast }) {
   const [username, setUsername] = useState(user.username || '');
   const [isBanned, setIsBanned] = useState(user.is_banned);
   const [saving, setSaving] = useState(false);
   const [grantPlanId, setGrantPlanId] = useState('');
   const [granting, setGranting] = useState(false);
-  const [revokingPlanId, setRevokingPlanId] = useState(null);
+  const [revokingId, setRevokingId] = useState(null);
   const [removingKeyId, setRemovingKeyId] = useState(null);
   const [resettingHwidId, setResettingHwidId] = useState(null);
 
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase.from('profiles').update({ username, is_banned: isBanned }).eq('id', user.id);
+    const { error } = await adminSupabase.from('profiles').update({ username, is_banned: isBanned }).eq('id', user.id);
     if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
     else { toast({ title: 'User saved' }); onSaved(); }
     setSaving(false);
@@ -59,38 +51,35 @@ function UserEditModal({ user, plans, token, onClose, onSaved, onRefresh, toast 
   const grantPlan = async () => {
     if (!grantPlanId) return;
     setGranting(true);
-    const res = await adminFetch('/api/admin/user-plan', 'POST', { user_id: user.id, plan_id: grantPlanId }, token);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'Plan granted' }); onSaved(); onRefresh(user.id); setGrantPlanId(''); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const plan = plans.find(p => p.id === grantPlanId);
+    const expires = plan?.duration_days ? new Date(Date.now() + plan.duration_days * 86400000).toISOString() : null;
+    const { error } = await adminSupabase.from('user_plans').insert({ user_id: user.id, plan_id: grantPlanId, expires_at: expires });
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'Plan granted' }); onRefresh(user.id); setGrantPlanId(''); }
     setGranting(false);
   };
 
   const revokePlan = async (planRowId) => {
-    setRevokingPlanId(planRowId);
-    const res = await adminFetch('/api/admin/user-plan', 'DELETE', { plan_row_id: planRowId }, token);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'Plan revoked' }); onSaved(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
-    setRevokingPlanId(null);
+    setRevokingId(planRowId);
+    const { error } = await adminSupabase.from('user_plans').delete().eq('id', planRowId);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'Plan revoked' }); onRefresh(user.id); }
+    setRevokingId(null);
   };
 
-  const removeKeyFromUser = async (keyId) => {
+  const removeKey = async (keyId) => {
     setRemovingKeyId(keyId);
-    const res = await adminFetch('/api/admin/remove-key', 'POST', { key_id: keyId }, token);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'Key unlinked' }); onRefresh(user.id); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error || d.message });
+    const { error } = await adminSupabase.from('license_keys').update({ user_id: null, status: 'inactive' }).eq('id', keyId);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'Key unlinked' }); onRefresh(user.id); }
     setRemovingKeyId(null);
   };
 
   const resetHwid = async (keyId) => {
     setResettingHwidId(keyId);
-    const kc = user.keys.find(k => k.id === keyId)?.key_code;
-    const res = await adminFetch('/api/v1/keys/reset-hwid', 'POST', { key_code: kc }, token);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'HWID reset' }); onSaved(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const { error } = await adminSupabase.from('license_keys').update({ hwid: null, hwid_device_count: 0, hwid_locked: false }).eq('id', keyId);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'HWID reset' }); onRefresh(user.id); }
     setResettingHwidId(null);
   };
 
@@ -98,91 +87,86 @@ function UserEditModal({ user, plans, token, onClose, onSaved, onRefresh, toast 
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 overflow-y-auto pt-8 pb-8 px-4">
       <div className="bg-[#0d0d1a] border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-slate-800">
-          <div><h2 className="text-lg font-bold text-white">Edit User</h2><p className="text-xs text-slate-500 font-mono mt-0.5">{user.id}</p></div>
-          <button onClick={onClose} className="text-slate-500 hover:text-white p-1 rounded"><X className="w-5 h-5" /></button>
+          <div><h2 className="text-lg font-bold text-white">Edit User</h2><p className="text-xs text-slate-500 font-mono">{user.id}</p></div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-6">
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Profile</h3>
-            <div><label className="text-xs text-slate-500 mb-1 block">Username</label><Input value={username} onChange={e => setUsername(e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Username</label>
+              <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={isBanned} onChange={e => setIsBanned(e.target.checked)} className="w-4 h-4 accent-red-500" />
                 <span className="text-sm text-slate-300">Banned</span>
               </label>
-              {isBanned && <Badge className="bg-red-900/50 text-red-400 border-red-800">User is banned</Badge>}
+              {isBanned && <Badge className="bg-red-900/50 text-red-400 border-red-800">Banned</Badge>}
             </div>
             <Button onClick={save} disabled={saving} className="bg-cyan-700 hover:bg-cyan-600 text-white">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Save Changes
+              {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}Save Changes
             </Button>
           </section>
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Active Plans</h3>
-            {(user.plans || []).length === 0 ? <p className="text-xs text-slate-600">No active plans.</p> : (
-              <div className="space-y-2">
-                {user.plans.map(up => (
-                  <div key={up.id} className="flex items-center justify-between bg-[#060610] rounded-lg px-3 py-2 border border-slate-800">
-                    <div>
-                      <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize mr-2', TIER_COLORS[up.plans?.tier || 'free'])}>{up.plans?.tier}</span>
-                      <span className="text-sm text-white">{up.plans?.name}</span>
-                      {up.expires_at && <span className="text-xs text-slate-500 ml-2">Expires {new Date(up.expires_at).toLocaleDateString()}</span>}
-                    </div>
-                    <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-400 h-7 px-2" disabled={revokingPlanId === up.id} onClick={() => revokePlan(up.id)}>
-                      {revokingPlanId === up.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                    </Button>
+            {!(user.plans||[]).length ? <p className="text-xs text-slate-600">No active plans.</p> : (
+              <div className="space-y-2">{user.plans.map(up => (
+                <div key={up.id} className="flex items-center justify-between bg-[#060610] rounded-lg px-3 py-2 border border-slate-800">
+                  <div>
+                    <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize mr-2', TIER_COLORS[up.plans?.tier||'free'])}>{up.plans?.tier}</span>
+                    <span className="text-sm text-white">{up.plans?.name}</span>
+                    {up.expires_at && <span className="text-xs text-slate-500 ml-2">Exp {new Date(up.expires_at).toLocaleDateString()}</span>}
                   </div>
-                ))}
-              </div>
+                  <Button size="sm" variant="ghost" className="text-red-500 h-7 px-2" disabled={revokingId===up.id} onClick={() => revokePlan(up.id)}>
+                    {revokingId===up.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  </Button>
+                </div>
+              ))}</div>
             )}
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2">
               <select value={grantPlanId} onChange={e => setGrantPlanId(e.target.value)} className="flex-1 h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
                 <option value="">Grant a plan...</option>{plans.map(p => <option key={p.id} value={p.id}>{p.name} (${p.price})</option>)}
               </select>
-              <Button onClick={grantPlan} disabled={granting || !grantPlanId} className="bg-green-800 hover:bg-green-700 text-white whitespace-nowrap">{granting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Grant Plan'}</Button>
+              <Button onClick={grantPlan} disabled={granting||!grantPlanId} className="bg-green-800 hover:bg-green-700 text-white whitespace-nowrap">
+                {granting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Grant Plan'}
+              </Button>
             </div>
           </section>
-
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">License Keys</h3>
-            {(user.keys || []).length === 0 ? <p className="text-xs text-slate-600">No keys linked.</p> : (
-              <div className="space-y-2">
-                {user.keys.map(k => {
-                  const sm = KEY_STATUS_META[k.status] || KEY_STATUS_META.inactive;
-                  return (
-                    <div key={k.id} className="bg-[#060610] rounded-lg p-3 border border-slate-800">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="font-mono text-xs text-white tracking-wider">{k.key_code}</span>
-                        <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', sm.bg, sm.color)}>{sm.label}</span>
-                      </div>
-                      <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
-                        <span className="flex items-center gap-1"><Monitor className="w-3 h-3" />{k.hwid_device_count}/{k.max_devices} devices</span>
-                        {k.expires_at && <span>Exp: {new Date(k.expires_at).toLocaleDateString()}</span>}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <Button size="sm" variant="outline" className="h-7 text-xs border-slate-700 text-slate-400 hover:text-white" disabled={resettingHwidId === k.id} onClick={() => resetHwid(k.id)}>
-                          {resettingHwidId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 text-xs border-red-900 text-red-400 hover:bg-red-950" disabled={removingKeyId === k.id} onClick={() => removeKeyFromUser(k.id)}>
-                          {removingKeyId === k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}Remove
-                        </Button>
-                      </div>
+            {!(user.keys||[]).length ? <p className="text-xs text-slate-600">No keys linked.</p> : (
+              <div className="space-y-2">{user.keys.map(k => {
+                const sm = KEY_STATUS_META[k.status]||KEY_STATUS_META.inactive;
+                return (
+                  <div key={k.id} className="bg-[#060610] rounded-lg p-3 border border-slate-800">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="font-mono text-xs text-white">{k.key_code}</span>
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', sm.bg, sm.color)}>{sm.label}</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
+                      <span><Monitor className="w-3 h-3 inline mr-1" />{k.hwid_device_count||0}/{k.max_devices||5} devices</span>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs border-slate-700 text-slate-400 hover:text-white" disabled={resettingHwidId===k.id} onClick={() => resetHwid(k.id)}>
+                        {resettingHwidId===k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs border-red-900 text-red-400 hover:bg-red-950" disabled={removingKeyId===k.id} onClick={() => removeKey(k.id)}>
+                        {removingKeyId===k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <X className="w-3 h-3 mr-1" />}Remove
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}</div>
             )}
           </section>
           <section className="space-y-3">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">PayPal History</h3>
-            {(user.paypal || []).length === 0 ? <p className="text-xs text-slate-600">No PayPal orders.</p> : (
-              <div className="space-y-2">
-                {user.paypal.map(o => (
-                  <div key={o.id} className="flex items-center justify-between bg-[#060610] rounded-lg px-3 py-2 border border-slate-800 text-xs">
-                    <div><span className="text-white font-medium">{o.plans?.name || 'Unknown Plan'}</span><span className="text-slate-500 ml-2">{o.payer_email}</span></div>
-                    <div className="text-right"><span className="text-green-400 font-bold">${o.amount?.toFixed(2)}</span><span className="text-slate-600 ml-2">{new Date(o.created_at).toLocaleDateString()}</span></div>
-                  </div>
-                ))}
-              </div>
+            {!(user.paypal||[]).length ? <p className="text-xs text-slate-600">No PayPal orders.</p> : (
+              <div className="space-y-2">{user.paypal.map(o => (
+                <div key={o.id} className="flex items-center justify-between bg-[#060610] rounded-lg px-3 py-2 border border-slate-800 text-xs">
+                  <div><span className="text-white font-medium">{o.plans?.name||'Unknown'}</span><span className="text-slate-500 ml-2">{o.payer_email}</span></div>
+                  <span className="text-green-400 font-bold">${o.amount?.toFixed(2)}</span>
+                </div>
+              ))}</div>
             )}
           </section>
         </div>
@@ -192,27 +176,27 @@ function UserEditModal({ user, plans, token, onClose, onSaved, onRefresh, toast 
 }
 
 // ── Plan Edit Modal ───────────────────────────────────────────────────────────
-function PlanEditModal({ plan, token, onClose, onSaved, toast }) {
+function PlanEditModal({ plan, onClose, onSaved, toast }) {
   const isNew = !plan?.id;
   const [form, setForm] = useState({
-    name: plan?.name || '', tier: plan?.tier || 'basic', billing_interval: plan?.billing_interval || 'monthly',
-    price: plan?.price ?? 0, duration_days: plan?.duration_days ?? '', features: plan?.features || [],
-    custom_note: plan?.custom_note || '', sort_order: plan?.sort_order ?? 0, is_active: plan?.is_active ?? true,
+    name: plan?.name||'', tier: plan?.tier||'basic', billing_interval: plan?.billing_interval||'monthly',
+    price: plan?.price??0, duration_days: plan?.duration_days??'', features: plan?.features||[],
+    sort_order: plan?.sort_order??0, is_active: plan?.is_active??true,
   });
   const [featureInput, setFeatureInput] = useState('');
   const [saving, setSaving] = useState(false);
-  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const addFeature = () => { if (featureInput.trim()) { setField('features', [...form.features, featureInput.trim()]); setFeatureInput(''); } };
-  const removeFeature = (i) => setField('features', form.features.filter((_, idx) => idx !== i));
+  const setField = (k, v) => setForm(f => ({...f, [k]: v}));
+  const addFeature = () => { if (featureInput.trim()) { setField('features', [...form.features, featureInput.trim()]); setFeatureInput(''); }};
+  const removeFeature = (i) => setField('features', form.features.filter((_,idx) => idx!==i));
 
   const save = async () => {
     setSaving(true);
-    const method = isNew ? 'POST' : 'PATCH';
-    const body = isNew ? form : { id: plan.id, ...form };
-    const res = await adminFetch('/api/admin/plans', method, body, token);
-    const d = await res.json();
-    if (d.success || d.plan) { toast({ title: isNew ? 'Plan created' : 'Plan saved' }); onSaved(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const data = {...form, duration_days: form.duration_days ? parseInt(form.duration_days) : null};
+    const { error } = isNew
+      ? await adminSupabase.from('plans').insert(data)
+      : await adminSupabase.from('plans').update(data).eq('id', plan.id);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: isNew ? 'Plan created' : 'Plan saved' }); onSaved(); }
     setSaving(false);
   };
 
@@ -225,31 +209,35 @@ function PlanEditModal({ plan, token, onClose, onSaved, toast }) {
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2"><label className="text-xs text-slate-500 mb-1 block">Plan Name</label><Input value={form.name} onChange={e => setField('name', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div className="col-span-2"><label className="text-xs text-slate-500 mb-1 block">Plan Name</label>
+              <Input value={form.name} onChange={e => setField('name', e.target.value)} className="bg-[#060610] border-slate-700 text-white" /></div>
             <div><label className="text-xs text-slate-500 mb-1 block">Tier</label>
               <select value={form.tier} onChange={e => setField('tier', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
-                {TIERS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-              </select>
-            </div>
+                {TIERS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+              </select></div>
             <div><label className="text-xs text-slate-500 mb-1 block">Billing Interval</label>
               <select value={form.billing_interval} onChange={e => setField('billing_interval', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
-                {INTERVALS.map(i => <option key={i} value={i}>{i.charAt(0).toUpperCase() + i.slice(1)}</option>)}
-              </select>
+                {INTERVALS.map(i => <option key={i} value={i}>{i.charAt(0).toUpperCase()+i.slice(1)}</option>)}
+              </select></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Price ($)</label>
+              <Input type="number" step="0.01" value={form.price} onChange={e => setField('price', parseFloat(e.target.value)||0)} className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Duration (days, blank=lifetime)</label>
+              <Input type="number" value={form.duration_days} onChange={e => setField('duration_days', e.target.value)} placeholder="e.g. 30" className="bg-[#060610] border-slate-700 text-white" /></div>
+            <div className="flex items-center gap-2 col-span-2">
+              <input type="checkbox" checked={form.is_active} onChange={e => setField('is_active', e.target.checked)} className="w-4 h-4 accent-cyan-500" />
+              <span className="text-sm text-slate-300">Active</span>
             </div>
-            <div><label className="text-xs text-slate-500 mb-1 block">Price ($)</label><Input type="number" step="0.01" value={form.price} onChange={e => setField('price', parseFloat(e.target.value) || 0)} className="bg-[#060610] border-slate-700 text-white" /></div>
-            <div><label className="text-xs text-slate-500 mb-1 block">Duration (days, blank=lifetime)</label><Input type="number" value={form.duration_days} onChange={e => setField('duration_days', e.target.value ? parseInt(e.target.value) : null)} placeholder="e.g. 30" className="bg-[#060610] border-slate-700 text-white" /></div>
-            <div className="flex items-center gap-2 mt-4"><input type="checkbox" checked={form.is_active} onChange={e => setField('is_active', e.target.checked)} className="w-4 h-4 accent-cyan-500" /><span className="text-sm text-slate-300">Active</span></div>
           </div>
           <div>
             <label className="text-xs text-slate-500 mb-2 block">Features</label>
-            <div className="space-y-1 mb-2">{form.features.map((f, i) => (
+            <div className="space-y-1 mb-2">{form.features.map((f,i) => (
               <div key={i} className="flex items-center justify-between bg-[#060610] rounded px-3 py-1.5 border border-slate-800 text-sm">
                 <span className="text-slate-300">{f}</span>
                 <button onClick={() => removeFeature(i)} className="text-red-500 hover:text-red-400 ml-2"><X className="w-3 h-3" /></button>
               </div>
             ))}</div>
             <div className="flex gap-2">
-              <Input value={featureInput} onChange={e => setFeatureInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addFeature()} placeholder="Add feature..." className="bg-[#060610] border-slate-700 text-white" />
+              <Input value={featureInput} onChange={e => setFeatureInput(e.target.value)} onKeyDown={e => e.key==='Enter' && addFeature()} placeholder="Add feature..." className="bg-[#060610] border-slate-700 text-white" />
               <Button onClick={addFeature} size="sm" variant="outline" className="border-slate-700 text-slate-400 hover:text-white"><Plus className="w-4 h-4" /></Button>
             </div>
           </div>
@@ -262,187 +250,173 @@ function PlanEditModal({ plan, token, onClose, onSaved, toast }) {
   );
 }
 
-// ── Main Admin Panel ─────────────────────────────────────────────────────────
+// ── Main Admin Panel ──────────────────────────────────────────────────────────
 const AdminPanel = () => {
   const { user, isAdmin, loading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const [authToken, setAuthToken] = useState('');
-  const [stats, setStats] = useState({ users: 0, activeKeys: 0, totalKeys: 0, activePlans: 0, revenue: 0 });
-  const [users, setUsers] = useState([]);
-  const [keys, setKeys] = useState([]);
-  const [plans, setPlans] = useState([]);
-  const [downloads, setDownloads] = useState([]);
-  const [paypalOrders, setPaypalOrders] = useState([]);
-  const [toolBans, setToolBans] = useState([]);
-
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [loadingKeys, setLoadingKeys] = useState(false);
+  const [stats, setStats]           = useState({ users:0, activeKeys:0, totalKeys:0, activePlans:0, revenue:0 });
+  const [users, setUsers]           = useState([]);
+  const [keys, setKeys]             = useState([]);
+  const [plans, setPlans]           = useState([]);
+  const [paypalOrders, setPaypal]   = useState([]);
+  const [toolBans, setToolBans]     = useState([]);
+  const [editingUser, setEditingUser]     = useState(null);
+  const [loadingUsers, setLoadingUsers]   = useState(false);
+  const [loadingKeys, setLoadingKeys]     = useState(false);
   const [loadingPaypal, setLoadingPaypal] = useState(false);
-  const [loadingBans, setLoadingBans] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [genCount, setGenCount] = useState(1);
-  const [genPlanId, setGenPlanId] = useState('');
-  const [keySearch, setKeySearch] = useState('');
-  const [userSearch, setUserSearch] = useState('');
-  const [paypalSearch, setPaypalSearch] = useState('');
-  const [editingUser, setEditingUser] = useState(null);
+  const [loadingBans, setLoadingBans]     = useState(false);
   const [loadingUserDetail, setLoadingUserDetail] = useState(null);
-  const [expandedKey, setExpandedKey] = useState(null);
+  const [expandedKey, setExpandedKey]     = useState(null);
   const [resettingHwid, setResettingHwid] = useState(null);
+  const [generating, setGenerating]       = useState(false);
+  const [genCount, setGenCount]           = useState(1);
+  const [genPlanId, setGenPlanId]         = useState('');
+  const [keySearch, setKeySearch]         = useState('');
+  const [userSearch, setUserSearch]       = useState('');
+  const [paypalSearch, setPaypalSearch]   = useState('');
   const [showPlanModal, setShowPlanModal] = useState(false);
-  const [editingPlan, setEditingPlan] = useState(null);
+  const [editingPlan, setEditingPlan]     = useState(null);
   const [deletingPlanId, setDeletingPlanId] = useState(null);
-  const [banUserId, setBanUserId] = useState('');
-  const [banReason, setBanReason] = useState('');
-  const [banProof, setBanProof] = useState('');
-  const [banNotes, setBanNotes] = useState('');
+  const [banUserId, setBanUserId]   = useState('');
+  const [banReason, setBanReason]   = useState('');
+  const [banProof, setBanProof]     = useState('');
+  const [banNotes, setBanNotes]     = useState('');
   const [submittingBan, setSubmittingBan] = useState(false);
-  const [unbanningId, setUnbanningId] = useState(null);
+  const [unbanningId, setUnbanningId]     = useState(null);
 
-  useEffect(() => {
-    if (!loading && (!user || !isAdmin)) navigate('/dashboard');
-  }, [loading, user, isAdmin, navigate]);
+  useEffect(() => { if (!loading && (!user || !isAdmin)) navigate('/dashboard'); }, [loading, user, isAdmin, navigate]);
 
-  useEffect(() => {
-    if (isAdmin) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.access_token) setAuthToken(session.access_token);
-      });
-    }
-  }, [isAdmin]);
-
+  // ── Direct Supabase queries (no API routes) ──────────────────────────────
   const loadStats = useCallback(async () => {
-    const res = await adminFetch('/api/admin/stats', 'GET', null, authToken);
-    if (res.ok) { const d = await res.json(); setStats({ users: d.users||0, totalKeys: d.totalKeys||0, activeKeys: d.activeKeys||0, activePlans: d.activePlans||0, revenue: d.revenue||0 }); }
-  }, [authToken]);
+    const [{ count: userCount }, { count: totalKeys }, { count: activeKeys }, { count: activePlans }, { data: paypalData }] = await Promise.all([
+      adminSupabase.from('profiles').select('*', { count: 'exact', head: true }),
+      adminSupabase.from('license_keys').select('*', { count: 'exact', head: true }),
+      adminSupabase.from('license_keys').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      adminSupabase.from('user_plans').select('*', { count: 'exact', head: true }).gte('expires_at', new Date().toISOString()),
+      adminSupabase.from('paypal_orders').select('amount').eq('status', 'completed'),
+    ]);
+    const revenue = (paypalData||[]).reduce((s, o) => s + (o.amount||0), 0);
+    setStats({ users: userCount||0, totalKeys: totalKeys||0, activeKeys: activeKeys||0, activePlans: activePlans||0, revenue });
+  }, []);
 
   const loadUsers = useCallback(async () => {
     setLoadingUsers(true);
-    const { data } = await supabase.from('profiles').select('id, username, avatar_url, is_banned, created_at').order('created_at', { ascending: false }).limit(200);
-    setUsers(data || []); setLoadingUsers(false);
+    const { data } = await adminSupabase.from('profiles').select('id, username, avatar_url, is_banned, created_at').order('created_at', { ascending: false }).limit(200);
+    setUsers(data||[]); setLoadingUsers(false);
   }, []);
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true);
-    const res = await adminFetch('/api/admin/all-keys', 'GET', null, authToken);
-    if (res.ok) { const d = await res.json(); setKeys(d.keys || []); }
-    setLoadingKeys(false);
-  }, [authToken]);
+    const { data } = await adminSupabase.from('license_keys').select('*').order('created_at', { ascending: false }).limit(500);
+    setKeys(data||[]); setLoadingKeys(false);
+  }, []);
 
   const loadPlans = useCallback(async () => {
-    const { data } = await supabase.from('plans').select('*').order('sort_order');
-    setPlans(data || []);
+    const { data } = await adminSupabase.from('plans').select('*').order('sort_order');
+    setPlans(data||[]);
   }, []);
 
   const loadPaypal = useCallback(async () => {
     setLoadingPaypal(true);
-    const { data } = await supabase.from('paypal_orders').select('*, plans(name)').order('created_at', { ascending: false }).limit(500);
-    setPaypalOrders(data || []); setLoadingPaypal(false);
+    const { data } = await adminSupabase.from('paypal_orders').select('*, plans(name)').order('created_at', { ascending: false }).limit(500);
+    setPaypal(data||[]); setLoadingPaypal(false);
   }, []);
 
   const loadBans = useCallback(async () => {
     setLoadingBans(true);
-    const res = await adminFetch('/api/admin/tool-bans', 'GET', null, authToken);
-    if (res.ok) { const d = await res.json(); setToolBans(d.bans || []); }
-    setLoadingBans(false);
-  }, [authToken]);
+    const { data } = await adminSupabase.from('tool_bans').select('*').eq('is_active', true).order('banned_at', { ascending: false });
+    setToolBans(data||[]); setLoadingBans(false);
+  }, []);
 
   useEffect(() => { if (isAdmin) { loadStats(); loadPlans(); } }, [isAdmin, loadStats, loadPlans]);
 
   const openUserEdit = async (userId) => {
     setLoadingUserDetail(userId);
-    const [{ data: profile }, { data: userPlans }, { data: userPaypal }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('user_plans').select('id, plan_id, expires_at, plans(name, tier)').eq('user_id', userId),
-      supabase.from('paypal_orders').select('*, plans(name)').eq('user_id', userId).order('created_at', { ascending: false }),
+    const [{ data: profile }, { data: userPlans }, { data: userPaypal }, { data: userKeys }] = await Promise.all([
+      adminSupabase.from('profiles').select('*').eq('id', userId).single(),
+      adminSupabase.from('user_plans').select('id, plan_id, expires_at, plans(name, tier)').eq('user_id', userId),
+      adminSupabase.from('paypal_orders').select('*, plans(name)').eq('user_id', userId).order('created_at', { ascending: false }),
+      adminSupabase.from('license_keys').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
     ]);
-    const keysRes = await adminFetch(`/api/admin/user-keys?user_id=${userId}`, 'GET', null, authToken);
-    const keysData = keysRes.ok ? await keysRes.json() : { keys: [] };
-    if (profile) setEditingUser({ ...profile, plans: userPlans || [], keys: keysData.keys || [], paypal: userPaypal || [] });
+    if (profile) setEditingUser({ ...profile, plans: userPlans||[], keys: userKeys||[], paypal: userPaypal||[] });
     setLoadingUserDetail(null);
   };
 
   const generateKeys = async () => {
     setGenerating(true);
-    const newKeys = Array.from({ length: Math.min(genCount, 50) }, () => ({ key_code: generateKeyCode(), status: 'inactive', plan_id: genPlanId || null }));
-    const { error } = await supabase.from('license_keys').insert(newKeys);
+    const newKeys = Array.from({length: Math.min(genCount,50)}, () => ({ key_code: generateKeyCode(), status: 'inactive', plan_id: genPlanId||null }));
+    const { error } = await adminSupabase.from('license_keys').insert(newKeys);
     if (!error) { toast({ title: `${newKeys.length} key(s) generated` }); loadStats(); if (keys.length > 0) loadKeys(); }
     else toast({ variant: 'destructive', title: 'Error', description: error.message });
     setGenerating(false);
   };
 
   const updateKeyStatus = async (id, status) => {
-    const { error } = await supabase.from('license_keys').update({ status }).eq('id', id);
-    if (!error) { setKeys(prev => prev.map(k => k.id === id ? { ...k, status } : k)); toast({ title: 'Status updated' }); }
+    const { error } = await adminSupabase.from('license_keys').update({ status }).eq('id', id);
+    if (!error) { setKeys(prev => prev.map(k => k.id===id ? {...k,status} : k)); toast({ title: 'Status updated' }); }
   };
 
-  const resetKeyHwid = async (keyCode) => {
-    setResettingHwid(keyCode);
-    const res = await adminFetch('/api/v1/keys/reset-hwid', 'POST', { key_code: keyCode }, authToken);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'HWID reset' }); loadKeys(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+  const resetKeyHwid = async (keyId) => {
+    setResettingHwid(keyId);
+    const { error } = await adminSupabase.from('license_keys').update({ hwid: null, hwid_device_count: 0, hwid_locked: false }).eq('id', keyId);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'HWID reset' }); loadKeys(); }
     setResettingHwid(null);
   };
 
   const deletePlan = async (id) => {
     if (!confirm('Delete this plan?')) return;
     setDeletingPlanId(id);
-    const res = await adminFetch('/api/admin/plans', 'DELETE', { id }, authToken);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'Plan deleted' }); loadPlans(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const { error } = await adminSupabase.from('plans').delete().eq('id', id);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'Plan deleted' }); loadPlans(); }
     setDeletingPlanId(null);
   };
 
   const submitBan = async () => {
     if (!banUserId.trim() || !banReason.trim()) return;
     setSubmittingBan(true);
-    const res = await adminFetch('/api/admin/tool-bans', 'POST', { user_id: banUserId.trim(), reason: banReason.trim(), proof: banProof||undefined, notes: banNotes||undefined }, authToken);
-    const d = await res.json();
-    if (d.ban) { toast({ title: 'User banned from Tools' }); setBanUserId(''); setBanReason(''); setBanProof(''); setBanNotes(''); loadBans(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const { error } = await adminSupabase.from('tool_bans').insert({ user_id: banUserId.trim(), reason: banReason.trim(), proof: banProof||null, notes: banNotes||null, is_active: true, tool: 'auction' });
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'User banned from Tools' }); setBanUserId(''); setBanReason(''); setBanProof(''); setBanNotes(''); loadBans(); }
     setSubmittingBan(false);
   };
 
   const unban = async (banId) => {
     setUnbanningId(banId);
-    const res = await adminFetch('/api/admin/tool-bans', 'PATCH', { ban_id: banId }, authToken);
-    const d = await res.json();
-    if (d.success) { toast({ title: 'User unbanned' }); loadBans(); }
-    else toast({ variant: 'destructive', title: 'Error', description: d.error });
+    const { error } = await adminSupabase.from('tool_bans').update({ is_active: false }).eq('id', banId);
+    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
+    else { toast({ title: 'User unbanned' }); loadBans(); }
     setUnbanningId(null);
   };
 
-  const filteredKeys = keys.filter(k => !keySearch || k.key_code.toLowerCase().includes(keySearch.toLowerCase()) || k.status.includes(keySearch.toLowerCase()));
+  const filteredKeys  = keys.filter(k => !keySearch || k.key_code.toLowerCase().includes(keySearch.toLowerCase()) || k.status.includes(keySearch.toLowerCase()));
   const filteredUsers = users.filter(u => !userSearch || (u.username||'').toLowerCase().includes(userSearch.toLowerCase()) || u.id.includes(userSearch));
-  const filteredPaypal = paypalOrders.filter(o => !paypalSearch || o.order_id?.toLowerCase().includes(paypalSearch.toLowerCase()) || (o.payer_email||'').toLowerCase().includes(paypalSearch.toLowerCase()));
+  const filteredPaypal = paypalOrders.filter(o => !paypalSearch || (o.payer_email||'').toLowerCase().includes(paypalSearch.toLowerCase()) || (o.order_id||'').toLowerCase().includes(paypalSearch.toLowerCase()));
 
   if (loading || !isAdmin) return <div className="min-h-screen pt-24 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>;
 
   return (
     <div className="min-h-screen pt-24 px-4 bg-[#08080f] text-white pb-20">
-      {editingUser && <UserEditModal user={editingUser} plans={plans} token={authToken} onClose={() => setEditingUser(null)} onSaved={() => { loadUsers(); loadStats(); setEditingUser(null); }} onRefresh={openUserEdit} toast={toast} />}
-      {showPlanModal && <PlanEditModal plan={editingPlan} token={authToken} onClose={() => setShowPlanModal(false)} onSaved={() => { loadPlans(); setShowPlanModal(false); }} toast={toast} />}
-
+      {editingUser && <UserEditModal user={editingUser} plans={plans} onClose={() => setEditingUser(null)} onSaved={() => { loadUsers(); loadStats(); setEditingUser(null); }} onRefresh={openUserEdit} toast={toast} />}
+      {showPlanModal && <PlanEditModal plan={editingPlan} onClose={() => setShowPlanModal(false)} onSaved={() => { loadPlans(); setShowPlanModal(false); }} toast={toast} />}
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center gap-3 mb-8">
           <div className="p-2 bg-cyan-950/50 rounded-lg border border-cyan-900/50"><Shield className="w-6 h-6 text-cyan-400" /></div>
           <div><h1 className="text-2xl font-bold text-white">Admin Panel</h1><p className="text-slate-500 text-sm">StreamVibe management console</p></div>
           <Badge className="ml-2 bg-cyan-900/50 text-cyan-400 border-cyan-800">Admin</Badge>
         </div>
-
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           {[
-            { label: 'Users',       value: stats.users,                    icon: Users,       color: 'text-blue-400',    bg: 'bg-blue-950/30 border-blue-900/50' },
-            { label: 'Active Keys', value: stats.activeKeys,               icon: CheckCircle, color: 'text-green-400',   bg: 'bg-green-950/30 border-green-900/50' },
-            { label: 'Total Keys',  value: stats.totalKeys,                icon: Key,         color: 'text-purple-400',  bg: 'bg-purple-950/30 border-purple-900/50' },
-            { label: 'Active Plans',value: stats.activePlans,              icon: CreditCard,  color: 'text-cyan-400',    bg: 'bg-cyan-950/30 border-cyan-900/50' },
-            { label: 'Revenue',     value: `$${stats.revenue.toFixed(2)}`, icon: DollarSign,  color: 'text-emerald-400', bg: 'bg-emerald-950/30 border-emerald-900/50' },
-          ].map((s, i) => (
+            { label:'Users',        value: stats.users,                    icon: Users,       color:'text-blue-400',    bg:'bg-blue-950/30 border-blue-900/50' },
+            { label:'Active Keys',  value: stats.activeKeys,               icon: CheckCircle, color:'text-green-400',   bg:'bg-green-950/30 border-green-900/50' },
+            { label:'Total Keys',   value: stats.totalKeys,                icon: Key,         color:'text-purple-400',  bg:'bg-purple-950/30 border-purple-900/50' },
+            { label:'Active Plans', value: stats.activePlans,              icon: CreditCard,  color:'text-cyan-400',    bg:'bg-cyan-950/30 border-cyan-900/50' },
+            { label:'Revenue',      value:`$${stats.revenue.toFixed(2)}`,  icon: DollarSign,  color:'text-emerald-400', bg:'bg-emerald-950/30 border-emerald-900/50' },
+          ].map((s,i) => (
             <Card key={i} className={cn('border', s.bg)}>
               <CardContent className="p-4 flex items-center justify-between">
                 <div><p className="text-xs text-slate-500 mb-1">{s.label}</p><p className={cn('text-2xl font-extrabold', s.color)}>{s.value}</p></div>
@@ -451,64 +425,60 @@ const AdminPanel = () => {
             </Card>
           ))}
         </div>
-
         <Tabs defaultValue="users">
           <TabsList className="bg-[#12121e] border border-slate-800 p-1 mb-6 h-auto gap-1 flex-wrap">
-            <TabsTrigger value="users" className="data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300" onClick={() => { if (users.length === 0) loadUsers(); }}><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
-            <TabsTrigger value="keys" className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300" onClick={() => { if (keys.length === 0) loadKeys(); }}><Key className="w-4 h-4 mr-2" />License Keys</TabsTrigger>
-            <TabsTrigger value="plans" className="data-[state=active]:bg-yellow-900/50 data-[state=active]:text-yellow-300"><Star className="w-4 h-4 mr-2" />Plans</TabsTrigger>
-            <TabsTrigger value="paypal" className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (paypalOrders.length === 0) loadPaypal(); }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
-            <TabsTrigger value="toolbans" className="data-[state=active]:bg-red-900/50 data-[state=active]:text-red-300" onClick={() => { if (toolBans.length === 0) loadBans(); }}><Ban className="w-4 h-4 mr-2" />Tool Bans</TabsTrigger>
+            <TabsTrigger value="users"    className="data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300"    onClick={() => { if (!users.length) loadUsers(); }}><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
+            <TabsTrigger value="keys"     className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300" onClick={() => { if (!keys.length) loadKeys(); }}><Key className="w-4 h-4 mr-2" />License Keys</TabsTrigger>
+            <TabsTrigger value="plans"    className="data-[state=active]:bg-yellow-900/50 data-[state=active]:text-yellow-300"><Star className="w-4 h-4 mr-2" />Plans</TabsTrigger>
+            <TabsTrigger value="paypal"   className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (!paypalOrders.length) loadPaypal(); }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
+            <TabsTrigger value="toolbans" className="data-[state=active]:bg-red-900/50 data-[state=active]:text-red-300"       onClick={() => { if (!toolBans.length) loadBans(); }}><Ban className="w-4 h-4 mr-2" />Tool Bans</TabsTrigger>
           </TabsList>
 
-          {/* USERS TAB */}
+          {/* USERS */}
           <TabsContent value="users">
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div><CardTitle className="text-white">Users</CardTitle><CardDescription className="text-slate-500">{stats.users} registered accounts</CardDescription></div>
+                <div><CardTitle className="text-white">Users</CardTitle><CardDescription className="text-slate-500">{stats.users} registered</CardDescription></div>
                 <div className="flex gap-2">
-                  <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
+                  <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
                   <Button size="sm" variant="outline" onClick={loadUsers} disabled={loadingUsers} className="border-slate-700 text-slate-400 hover:text-white">{loadingUsers ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {loadingUsers ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-blue-400 animate-spin" /></div>
-                : users.length === 0 ? <p className="text-center text-slate-500 py-12">Click Refresh to load users.</p>
-                : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
-                        <th className="text-left pb-3 font-medium">User</th>
-                        <th className="text-left pb-3 font-medium hidden md:table-cell">Joined</th>
-                        <th className="text-left pb-3 font-medium">Status</th>
-                        <th className="text-right pb-3 font-medium">Actions</th>
-                      </tr></thead>
-                      <tbody className="divide-y divide-slate-800/50">
-                        {filteredUsers.map(u => (
-                          <tr key={u.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 pr-4"><div><span className="text-white font-medium">{u.username || <span className="text-slate-500 italic text-xs">unnamed</span>}</span><p className="font-mono text-xs text-slate-600">{u.id.slice(0,14)}…</p></div></td>
-                            <td className="py-3 pr-4 hidden md:table-cell text-slate-400 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
-                            <td className="py-3 pr-4">{u.is_banned ? <Badge className="bg-red-900/50 text-red-400 border-red-800 text-xs">Banned</Badge> : <Badge className="bg-green-900/50 text-green-400 border-green-800 text-xs">Active</Badge>}</td>
-                            <td className="py-3 text-right">
-                              <Button size="sm" variant="ghost" className="h-7 px-2 text-slate-400 hover:text-white" disabled={loadingUserDetail === u.id} onClick={() => openUserEdit(u.id)}>
-                                {loadingUserDetail === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit2 className="w-3 h-3 mr-1" />}Edit
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p className="text-xs text-slate-600 mt-4 text-right">Showing {filteredUsers.length} of {users.length}</p>
-                  </div>
-                )}
+                : users.length===0 ? <p className="text-center text-slate-500 py-12">Click Refresh to load users.</p>
+                : <div className="overflow-x-auto"><table className="w-full text-sm">
+                    <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
+                      <th className="text-left pb-3 font-medium">User</th>
+                      <th className="text-left pb-3 font-medium hidden md:table-cell">Joined</th>
+                      <th className="text-left pb-3 font-medium">Status</th>
+                      <th className="text-right pb-3 font-medium">Actions</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {filteredUsers.map(u => (
+                        <tr key={u.id} className="hover:bg-slate-800/20">
+                          <td className="py-3 pr-4"><span className="text-white font-medium">{u.username||<span className="text-slate-500 italic text-xs">unnamed</span>}</span><p className="font-mono text-xs text-slate-600">{u.id.slice(0,14)}…</p></td>
+                          <td className="py-3 pr-4 hidden md:table-cell text-slate-400 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
+                          <td className="py-3 pr-4">{u.is_banned ? <Badge className="bg-red-900/50 text-red-400 border-red-800 text-xs">Banned</Badge> : <Badge className="bg-green-900/50 text-green-400 border-green-800 text-xs">Active</Badge>}</td>
+                          <td className="py-3 text-right">
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-slate-400 hover:text-white" disabled={loadingUserDetail===u.id} onClick={() => openUserEdit(u.id)}>
+                              {loadingUserDetail===u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit2 className="w-3 h-3 mr-1" />}Edit
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-slate-600 mt-4 text-right">Showing {filteredUsers.length} of {users.length}</p>
+                </div>}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* KEYS TAB */}
+          {/* KEYS */}
           <TabsContent value="keys" className="space-y-6">
             <Card className="bg-[#12121e] border-slate-800">
-              <CardHeader><CardTitle className="text-white text-lg flex items-center gap-2"><Key className="w-5 h-5 text-purple-400" />Generate Keys</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-white flex items-center gap-2"><Key className="w-5 h-5 text-purple-400" />Generate Keys</CardTitle></CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-4 items-end">
                   <div><label className="text-xs text-slate-400 mb-1 block">Quantity (max 50)</label><Input type="number" min={1} max={50} value={genCount} onChange={e => setGenCount(Math.min(50,Math.max(1,parseInt(e.target.value)||1)))} className="w-24 bg-[#0d0d1a] border-slate-700 text-white" /></div>
@@ -518,50 +488,48 @@ const AdminPanel = () => {
                     </select>
                   </div>
                   <Button onClick={generateKeys} disabled={generating} className="bg-gradient-to-r from-purple-600 to-cyan-600 text-white font-bold min-w-36">
-                    {generating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Key className="w-4 h-4 mr-2" />}Generate {genCount > 1 ? `${genCount} Keys` : 'Key'}
+                    {generating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Key className="w-4 h-4 mr-2" />}Generate {genCount>1?`${genCount} Keys`:'Key'}
                   </Button>
                 </div>
               </CardContent>
             </Card>
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <CardTitle className="text-white text-lg">All License Keys</CardTitle>
+                <CardTitle className="text-white">All License Keys</CardTitle>
                 <div className="flex gap-2">
                   <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search..." value={keySearch} onChange={e => setKeySearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
                   <Button size="sm" variant="outline" onClick={loadKeys} disabled={loadingKeys} className="border-slate-700 text-slate-400 hover:text-white">{loadingKeys ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {keys.length === 0 && !loadingKeys ? (
-                  <div className="text-center py-12"><Key className="w-12 h-12 mx-auto mb-4 text-slate-700" /><p className="text-slate-500">No keys loaded.</p><Button variant="outline" className="mt-4 border-slate-700 text-slate-400" onClick={loadKeys}>Load Keys</Button></div>
-                ) : loadingKeys ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-purple-400 animate-spin" /></div>
-                : (
-                  <div className="space-y-2">
+                {loadingKeys ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-purple-400 animate-spin" /></div>
+                : keys.length===0 ? <div className="text-center py-12"><p className="text-slate-500">Click Refresh to load keys.</p><Button variant="outline" className="mt-4 border-slate-700 text-slate-400" onClick={loadKeys}>Load Keys</Button></div>
+                : <div className="space-y-2">
                     {filteredKeys.map(k => {
-                      const sm = KEY_STATUS_META[k.status] || KEY_STATUS_META.inactive;
-                      const isExpanded = expandedKey === k.id;
+                      const sm = KEY_STATUS_META[k.status]||KEY_STATUS_META.inactive;
+                      const expanded = expandedKey===k.id;
                       return (
                         <div key={k.id} className="border border-slate-800 rounded-lg overflow-hidden">
-                          <div className="flex items-center gap-3 px-4 py-3 bg-[#0d0d1a] hover:bg-[#10101c] cursor-pointer" onClick={() => setExpandedKey(isExpanded ? null : k.id)}>
-                            <span className="font-mono text-xs text-white tracking-wider flex-1">{k.key_code}</span>
+                          <div className="flex items-center gap-3 px-4 py-3 bg-[#0d0d1a] hover:bg-[#10101c] cursor-pointer" onClick={() => setExpandedKey(expanded?null:k.id)}>
+                            <span className="font-mono text-xs text-white flex-1">{k.key_code}</span>
                             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline', sm.bg, sm.color)}>{sm.label}</span>
                             <span className="text-xs text-slate-600 hidden md:inline"><Monitor className="w-3 h-3 inline mr-1" />{k.hwid_device_count||0}/{k.max_devices||5}</span>
-                            {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                            {expanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
                           </div>
-                          {isExpanded && (
+                          {expanded && (
                             <div className="px-4 py-3 bg-[#08080f] border-t border-slate-800 space-y-3">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                <div><span className="text-slate-500">Devices</span><p className="text-white font-medium">{k.hwid_device_count||0} / {k.max_devices||5}</p></div>
+                                <div><span className="text-slate-500">Devices</span><p className="text-white">{k.hwid_device_count||0}/{k.max_devices||5}</p></div>
                                 <div><span className="text-slate-500">IP</span><p className="text-white font-mono">{k.ip_address||'N/A'}</p></div>
                                 <div><span className="text-slate-500">Expires</span><p className="text-white">{k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}</p></div>
-                                <div><span className="text-slate-500">Redeemed</span><p className="text-white">{k.redeemed_at ? new Date(k.redeemed_at).toLocaleDateString() : 'Not redeemed'}</p></div>
+                                <div><span className="text-slate-500">Redeemed</span><p className="text-white">{k.redeemed_at ? new Date(k.redeemed_at).toLocaleDateString() : 'No'}</p></div>
                               </div>
                               <div className="flex gap-2 flex-wrap">
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white border border-slate-700" onClick={() => { navigator.clipboard.writeText(k.key_code); toast({ title: 'Copied' }); }}><Copy className="w-3 h-3 mr-1" />Copy</Button>
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-400 hover:text-orange-300 border border-orange-900" disabled={resettingHwid === k.key_code} onClick={() => resetKeyHwid(k.key_code)}>{resettingHwid === k.key_code ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID</Button>
-                                {k.status !== 'banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300 border border-red-900" onClick={() => updateKeyStatus(k.id, 'banned')}><Ban className="w-3 h-3 mr-1" />Ban</Button>}
-                                {k.status === 'banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 hover:text-green-300 border border-green-900" onClick={() => updateKeyStatus(k.id, 'inactive')}><CheckCircle className="w-3 h-3 mr-1" />Unban</Button>}
-                                {k.status === 'inactive' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 hover:text-green-300 border border-green-900" onClick={() => updateKeyStatus(k.id, 'active')}><CheckCircle className="w-3 h-3 mr-1" />Activate</Button>}
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white border border-slate-700" onClick={() => { navigator.clipboard.writeText(k.key_code); toast({title:'Copied'}); }}><Copy className="w-3 h-3 mr-1" />Copy</Button>
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-orange-400 border border-orange-900" disabled={resettingHwid===k.id} onClick={() => resetKeyHwid(k.id)}>{resettingHwid===k.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RotateCcw className="w-3 h-3 mr-1" />}Reset HWID</Button>
+                                {k.status!=='banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 border border-red-900" onClick={() => updateKeyStatus(k.id,'banned')}><Ban className="w-3 h-3 mr-1" />Ban</Button>}
+                                {k.status==='banned' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 border border-green-900" onClick={() => updateKeyStatus(k.id,'inactive')}><CheckCircle className="w-3 h-3 mr-1" />Unban</Button>}
+                                {k.status==='inactive' && <Button size="sm" variant="ghost" className="h-7 text-xs text-green-400 border border-green-900" onClick={() => updateKeyStatus(k.id,'active')}><CheckCircle className="w-3 h-3 mr-1" />Activate</Button>}
                               </div>
                             </div>
                           )}
@@ -569,13 +537,12 @@ const AdminPanel = () => {
                       );
                     })}
                     <p className="text-xs text-slate-600 text-right pt-2">Showing {filteredKeys.length} of {keys.length}</p>
-                  </div>
-                )}
+                  </div>}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* PLANS TAB */}
+          {/* PLANS */}
           <TabsContent value="plans">
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader className="flex flex-row items-center justify-between">
@@ -583,38 +550,28 @@ const AdminPanel = () => {
                 <Button onClick={() => { setEditingPlan(null); setShowPlanModal(true); }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />New Plan</Button>
               </CardHeader>
               <CardContent>
-                {plans.length === 0 ? <p className="text-center text-slate-500 py-8">No plans loaded.</p> : (
-                  <div className="space-y-2">
-                    {plans.map(p => (
-                      <div key={p.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier] || TIER_COLORS.free)}>{p.tier}</span>
-                            <div className="min-w-0">
-                              <p className="text-white font-semibold text-sm truncate">{p.name}</p>
-                              <p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days ? p.duration_days + ' days' : 'lifetime'}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 ml-3 shrink-0">
-                            {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
-                            <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true); }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
-                            <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId === p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
-                          </div>
+                {plans.length===0 ? <p className="text-center text-slate-500 py-8">No plans yet.</p>
+                : <div className="space-y-2">{plans.map(p => (
+                    <div key={p.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier]||TIER_COLORS.free)}>{p.tier}</span>
+                          <div className="min-w-0"><p className="text-white font-semibold text-sm truncate">{p.name}</p><p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days?p.duration_days+' days':'lifetime'}</p></div>
                         </div>
-                        {p.features && p.features.length > 0 && (
-                          <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-                            {p.features.map((f, i) => <span key={i} className="text-[11px] bg-slate-800/80 text-slate-400 px-2 py-0.5 rounded-full">{f}</span>)}
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2 ml-3 shrink-0">
+                          {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true); }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId===p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId===p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {p.features?.length>0 && <div className="px-4 pb-3 flex flex-wrap gap-1.5">{p.features.map((f,i) => <span key={i} className="text-[11px] bg-slate-800/80 text-slate-400 px-2 py-0.5 rounded-full">{f}</span>)}</div>}
+                    </div>
+                  ))}</div>}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* PAYPAL TAB */}
+          {/* PAYPAL */}
           <TabsContent value="paypal">
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader>
@@ -626,56 +583,49 @@ const AdminPanel = () => {
               </CardHeader>
               <CardContent>
                 {loadingPaypal ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-emerald-400 animate-spin" /></div>
-                : filteredPaypal.length === 0 ? <p className="text-center text-slate-500 py-12">{paypalOrders.length === 0 ? 'No PayPal orders yet.' : 'No results match your search.'}</p>
-                : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
-                        <th className="text-left pb-3 font-medium">Order ID</th>
-                        <th className="text-left pb-3 font-medium">Plan</th>
-                        <th className="text-left pb-3 font-medium hidden md:table-cell">Payer</th>
-                        <th className="text-left pb-3 font-medium">Amount</th>
-                        <th className="text-left pb-3 font-medium">Status</th>
-                        <th className="text-left pb-3 font-medium hidden lg:table-cell">Date</th>
-                      </tr></thead>
-                      <tbody className="divide-y divide-slate-800/50">
-                        {filteredPaypal.map(o => (
-                          <tr key={o.id} className="hover:bg-slate-800/20">
-                            <td className="py-3 pr-4 font-mono text-xs text-slate-400">{o.order_id?.slice(0,12)}…</td>
-                            <td className="py-3 pr-4 text-white text-xs">{o.plans?.name || 'Unknown'}</td>
-                            <td className="py-3 pr-4 hidden md:table-cell text-xs text-slate-400">{o.payer_email || 'N/A'}</td>
-                            <td className="py-3 pr-4 text-emerald-400 font-bold">${o.amount?.toFixed(2)}</td>
-                            <td className="py-3 pr-4"><Badge className={o.status === 'completed' ? 'bg-green-900/50 text-green-400 border-green-800 text-xs' : 'bg-slate-800 text-slate-400 text-xs'}>{o.status}</Badge></td>
-                            <td className="py-3 hidden lg:table-cell text-slate-400 text-xs">{new Date(o.created_at).toLocaleDateString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                : filteredPaypal.length===0 ? <p className="text-center text-slate-500 py-12">{paypalOrders.length===0 ? 'Click Refresh to load orders.' : 'No results.'}</p>
+                : <div className="overflow-x-auto"><table className="w-full text-sm">
+                    <thead><tr className="border-b border-slate-800 text-slate-500 text-xs">
+                      <th className="text-left pb-3 font-medium">Order ID</th><th className="text-left pb-3 font-medium">Plan</th>
+                      <th className="text-left pb-3 font-medium hidden md:table-cell">Payer</th>
+                      <th className="text-left pb-3 font-medium">Amount</th><th className="text-left pb-3 font-medium">Status</th>
+                      <th className="text-left pb-3 font-medium hidden lg:table-cell">Date</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {filteredPaypal.map(o => (
+                        <tr key={o.id} className="hover:bg-slate-800/20">
+                          <td className="py-3 pr-4 font-mono text-xs text-slate-400">{o.order_id?.slice(0,12)}…</td>
+                          <td className="py-3 pr-4 text-white text-xs">{o.plans?.name||'Unknown'}</td>
+                          <td className="py-3 pr-4 hidden md:table-cell text-xs text-slate-400">{o.payer_email||'N/A'}</td>
+                          <td className="py-3 pr-4 text-emerald-400 font-bold">${o.amount?.toFixed(2)}</td>
+                          <td className="py-3 pr-4"><Badge className={o.status==='completed' ? 'bg-green-900/50 text-green-400 border-green-800 text-xs' : 'bg-slate-800 text-slate-400 text-xs'}>{o.status}</Badge></td>
+                          <td className="py-3 hidden lg:table-cell text-slate-400 text-xs">{new Date(o.created_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table></div>}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* TOOL BANS TAB */}
+          {/* TOOL BANS */}
           <TabsContent value="toolbans" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="bg-[#12121e] border-slate-800">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2"><Ban className="w-5 h-5 text-red-400" />Ban User from Tools</CardTitle>
-                  <CardDescription className="text-slate-400">Prevents access to auction tool and overlay. Account and plan remain intact.</CardDescription>
+                  <CardDescription className="text-slate-400">Prevents access to auction tool. Account and plan remain intact.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div><label className="text-xs text-slate-500 mb-1 block">User ID *</label><Input value={banUserId} onChange={e => setBanUserId(e.target.value)} placeholder="Paste user UUID from Users tab" className="bg-[#060610] border-slate-700 text-white font-mono text-xs" /></div>
                   <div><label className="text-xs text-slate-500 mb-1 block">Reason *</label><Input value={banReason} onChange={e => setBanReason(e.target.value)} placeholder="e.g. Scamming viewers" className="bg-[#060610] border-slate-700 text-white" /></div>
                   <div><label className="text-xs text-slate-500 mb-1 block">Proof (optional)</label><Input value={banProof} onChange={e => setBanProof(e.target.value)} placeholder="URL or description" className="bg-[#060610] border-slate-700 text-white" /></div>
-                  <div><label className="text-xs text-slate-500 mb-1 block">Internal Notes (admin only)</label><Input value={banNotes} onChange={e => setBanNotes(e.target.value)} placeholder="Optional internal notes" className="bg-[#060610] border-slate-700 text-white" /></div>
-                  <Button onClick={submitBan} disabled={submittingBan || !banUserId.trim() || !banReason.trim()} className="w-full bg-gradient-to-r from-red-700 to-red-800 hover:from-red-600 hover:to-red-700 text-white">
+                  <div><label className="text-xs text-slate-500 mb-1 block">Internal Notes</label><Input value={banNotes} onChange={e => setBanNotes(e.target.value)} placeholder="Optional internal notes" className="bg-[#060610] border-slate-700 text-white" /></div>
+                  <Button onClick={submitBan} disabled={submittingBan||!banUserId.trim()||!banReason.trim()} className="w-full bg-gradient-to-r from-red-700 to-red-800 hover:from-red-600 hover:to-red-700 text-white">
                     {submittingBan ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Ban className="w-4 h-4 mr-2" />}Ban User from Tools
                   </Button>
                 </CardContent>
               </Card>
-
               <Card className="bg-[#12121e] border-slate-800">
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                   <CardTitle className="text-white flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-orange-400" />Active Tool Bans</CardTitle>
@@ -683,31 +633,26 @@ const AdminPanel = () => {
                 </CardHeader>
                 <CardContent>
                   {loadingBans ? <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-red-400" /></div>
-                  : toolBans.length === 0 ? <div className="text-center py-8 text-slate-500 text-sm">No active tool bans</div>
-                  : (
-                    <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                      {toolBans.map(ban => (
-                        <div key={ban.id} className="bg-[#0a0a14] border border-red-900/30 rounded-xl p-4 space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="font-mono text-xs text-slate-500 truncate">{ban.user_id}</div>
-                              <div className="text-red-300 font-semibold text-sm mt-1">{ban.reason}</div>
-                            </div>
-                            <Button size="sm" variant="outline" onClick={() => unban(ban.id)} disabled={unbanningId === ban.id} className="border-green-900 text-green-400 hover:bg-green-950 shrink-0">
-                              {unbanningId === ban.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3 mr-1" />}Unban
-                            </Button>
+                  : toolBans.length===0 ? <div className="text-center py-8 text-slate-500 text-sm">No active tool bans</div>
+                  : <div className="space-y-3 max-h-[500px] overflow-y-auto">{toolBans.map(ban => (
+                      <div key={ban.id} className="bg-[#0a0a14] border border-red-900/30 rounded-xl p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-xs text-slate-500 truncate">{ban.user_id}</div>
+                            <div className="text-red-300 font-semibold text-sm mt-1">{ban.reason}</div>
                           </div>
-                          {ban.notes && <div className="text-xs text-slate-600 italic">{ban.notes}</div>}
-                          <div className="text-xs text-slate-700">{new Date(ban.banned_at).toLocaleString()}</div>
+                          <Button size="sm" variant="outline" onClick={() => unban(ban.id)} disabled={unbanningId===ban.id} className="border-green-900 text-green-400 hover:bg-green-950 shrink-0">
+                            {unbanningId===ban.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3 mr-1" />}Unban
+                          </Button>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        {ban.notes && <div className="text-xs text-slate-600 italic">{ban.notes}</div>}
+                        <div className="text-xs text-slate-700">{new Date(ban.banned_at).toLocaleString()}</div>
+                      </div>
+                    ))}</div>}
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
-
         </Tabs>
       </div>
     </div>
