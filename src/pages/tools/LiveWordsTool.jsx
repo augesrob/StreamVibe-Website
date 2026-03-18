@@ -50,7 +50,7 @@ export default function LiveWordsTool() {
     const payload = {
       phase: engine.phase, remaining: engine.remaining, letters: engine.letters,
       foundWords: engine.foundWords.slice(0, 8), leaderboard: engine.leaderboard.slice(0, 5),
-      roundNum: engine.roundNum,
+      roundNum: engine.roundNum, totalDuration: engine.roundDuration,
     };
     channelRef.current.send({ type: 'broadcast', event: 'state', payload });
   }, [engine.phase, engine.remaining, engine.foundWords, engine.leaderboard]);
@@ -109,4 +109,5 @@ export default function LiveWordsTool() {
     </GamePlanGate>
   );
 }
+
 
