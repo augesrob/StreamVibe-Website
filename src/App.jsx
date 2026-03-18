@@ -27,45 +27,41 @@ import TikTokLinkingPage     from '@/pages/TikTokLinkingPage';
 import ApiDocumentation      from '@/components/admin/ApiDocumentation';
 
 // Tools
-import AuctionTool   from '@/pages/tools/AuctionTool';
-import OverlaySetup  from '@/pages/tools/OverlaySetup';
-import LiveWordsTool from '@/pages/tools/LiveWordsTool';
+import AuctionTool      from '@/pages/tools/AuctionTool';
+import OverlaySetup     from '@/pages/tools/OverlaySetup';
+import LiveWordsTool    from '@/pages/tools/LiveWordsTool';
+import CannonBlastTool  from '@/pages/tools/CannonBlastTool';
 
-// Standalone overlay pages — pure transparent canvases, no chrome
-import AuctionOverlay   from '@/pages/tools/AuctionOverlay';
-import LiveWordsOverlay from '@/pages/tools/LiveWordsOverlay';
+// Overlays — transparent browser-source canvases, no chrome
+import AuctionOverlay      from '@/pages/tools/AuctionOverlay';
+import LiveWordsOverlay    from '@/pages/tools/LiveWordsOverlay';
+import CannonBlastOverlay  from '@/pages/tools/CannonBlastOverlay';
 
-// Paths that are browser-source overlays — no Header/Footer/background
-const OVERLAY_PATHS = ['/overlay', '/games-overlay/live-words'];
+const OVERLAY_PATHS = ['/overlay', '/games-overlay/'];
 function isOverlayPath(path) {
-  return OVERLAY_PATHS.some(p => path === p || path.startsWith(p + '?'));
+  return path === '/overlay' || path.startsWith('/games-overlay/');
 }
 
 function AppInner() {
   const { pathname } = useLocation();
   const overlay = isOverlayPath(pathname);
 
-  // Toggle overlay-mode class on <html> — forces transparent bg via CSS
   useEffect(() => {
-    if (overlay) {
-      document.documentElement.classList.add('overlay-mode');
-    } else {
-      document.documentElement.classList.remove('overlay-mode');
-    }
+    if (overlay) document.documentElement.classList.add('overlay-mode');
+    else         document.documentElement.classList.remove('overlay-mode');
     return () => document.documentElement.classList.remove('overlay-mode');
   }, [overlay]);
 
-  // ── Overlay routes — zero chrome, transparent canvas ────────────────────
   if (overlay) {
     return (
       <Routes>
-        <Route path="/overlay"                    element={<AuctionOverlay />} />
-        <Route path="/games-overlay/live-words"   element={<LiveWordsOverlay />} />
+        <Route path="/overlay"                       element={<AuctionOverlay />} />
+        <Route path="/games-overlay/live-words"      element={<LiveWordsOverlay />} />
+        <Route path="/games-overlay/cannon-blast"    element={<CannonBlastOverlay />} />
       </Routes>
     );
   }
 
-  // ── Normal app — Header + Footer ─────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
       <Header />
@@ -90,9 +86,10 @@ function AppInner() {
               <div className="pt-24 px-4 bg-[#0a0a0f] min-h-screen"><ApiDocumentation /></div>
             </ProtectedRoute>
           } />
-          <Route path="/tools/auction"          element={<ProtectedRoute><AuctionTool /></ProtectedRoute>} />
-          <Route path="/tools/overlay-setup"    element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
-          <Route path="/tools/games/live-words" element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
+          <Route path="/tools/auction"              element={<ProtectedRoute><AuctionTool /></ProtectedRoute>} />
+          <Route path="/tools/overlay-setup"        element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
+          <Route path="/tools/games/live-words"     element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
+          <Route path="/tools/games/cannon-blast"   element={<ProtectedRoute><CannonBlastTool /></ProtectedRoute>} />
         </Routes>
       </main>
       <Footer />
@@ -105,19 +102,14 @@ function App() {
   const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const missingEnv = !supabaseUrl || !supabaseAnonKey;
-
   return (
     <AuthProvider>
       <Router>
-        <Helmet>
-          <title>StreamVibe - Elevate Your TikTok LIVE Streams</title>
-        </Helmet>
+        <Helmet><title>StreamVibe - Elevate Your TikTok LIVE Streams</title></Helmet>
         <ScrollToTop />
         {missingEnv && (
-          <div className="fixed top-0 left-0 w-full z-[100] p-2 bg-red-600 text-white
-            font-bold text-center flex items-center justify-center gap-2">
-            <AlertTriangle className="w-5 h-5" />
-            CRITICAL: Supabase Configuration Missing.
+          <div className="fixed top-0 left-0 w-full z-[100] p-2 bg-red-600 text-white font-bold text-center flex items-center justify-center gap-2">
+            <AlertTriangle className="w-5 h-5" /> CRITICAL: Supabase Configuration Missing.
           </div>
         )}
         <AppInner />
