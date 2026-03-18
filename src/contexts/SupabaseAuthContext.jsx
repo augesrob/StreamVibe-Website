@@ -3,55 +3,39 @@ import { supabase } from '@/lib/customSupabaseClient';
 import { toast } from '@/components/ui/use-toast';
 
 const AuthContext = createContext({});
-
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser]         = useState(null);
-  const [session, setSession]   = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [isAdmin, setIsAdmin]   = useState(false);
+  const [user, setUser]           = useState(null);
+  const [session, setSession]     = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [isAdmin, setIsAdmin]     = useState(false);
   const [userPlans, setUserPlans] = useState([]);
 
+  const checkAdmin = (u) => {
+    if (!u) { setIsAdmin(false); return; }
+    const role = u.app_metadata?.role || u.user_metadata?.role;
+    setIsAdmin(role === 'admin');
+  };
+
   useEffect(() => {
-    const getSession = async () => {
-      const { data: { session: activeSession } } = await supabase.auth.getSession();
+    supabase.auth.getSession().then(({ data: { session: activeSession } }) => {
       setSession(activeSession);
       setUser(activeSession?.user ?? null);
-      if (activeSession?.user) {
-        checkAdminStatus(activeSession.user.id);
-        fetchUserPlans(activeSession.user.id);
-      }
-      setLoading(false);
-    };
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        checkAdminStatus(session.user.id);
-        fetchUserPlans(session.user.id);
-      } else {
-        setIsAdmin(false);
-        setUserPlans([]);
-      }
+      checkAdmin(activeSession?.user ?? null);
+      if (activeSession?.user) fetchUserPlans(activeSession.user.id);
       setLoading(false);
     });
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      checkAdmin(session?.user ?? null);
+      if (session?.user) fetchUserPlans(session.user.id);
+      else setUserPlans([]);
+      setLoading(false);
+    });
     return () => subscription.unsubscribe();
   }, []);
-
-  const checkAdminStatus = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.app_metadata?.role === 'admin' || user?.user_metadata?.role === 'admin') {
-        setIsAdmin(true);
-      }
-    } catch (e) {
-      console.error('Error checking admin status', e);
-    }
-  };
 
   const fetchUserPlans = async (userId) => {
     try {
@@ -67,31 +51,23 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signInWithEmail = async (email, password) => {
+  const signIn = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast({ variant: 'destructive', title: 'Login Failed', description: error.message });
-    }
+    if (error) toast({ variant: 'destructive', title: 'Sign In Failed', description: error.message });
+    else toast({ title: 'Welcome back!', description: 'Signed in successfully.' });
     return { error };
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error signing out', description: error.message });
-    } else {
-      toast({ title: 'Signed out', description: 'You have been successfully signed out.' });
-    }
+    if (error) toast({ variant: 'destructive', title: 'Error signing out', description: error.message });
+    else toast({ title: 'Signed out', description: 'You have been successfully signed out.' });
   };
 
   const refreshPlans = async () => {
     if (user) await fetchUserPlans(user.id);
   };
 
-  const value = {
-    session, user, loading, isAdmin, userPlans,
-    signInWithEmail, signOut, refreshPlans,
-  };
-
+  const value = { session, user, loading, isAdmin, userPlans, signIn, signOut, refreshPlans };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

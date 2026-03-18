@@ -1,5 +1,3 @@
-// Health check disabled — direct fetch to Supabase is blocked by CORS in browsers.
-// Login errors are handled by signInWithEmail in the AuthContext instead.
-export const checkSupabaseHealth = async () => {
-  return { status: 'online', message: 'OK' };
-};
+// Health check disabled — browser fetch to Supabase auth is blocked by CORS.
+// Login errors surface naturally through signIn() in AuthContext.
+export const checkSupabaseHealth = async () => ({ status: 'online', message: 'OK' });
