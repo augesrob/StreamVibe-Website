@@ -53,7 +53,7 @@ export default function CannonBlastTool() {
   }, [engine.phase, engine.ballPos, engine.activeBoost, engine.distance]);
 
   const tiktok = useTikTokGameConnector({
-    onGift:  (user, coins) => engine.processGift(user, coins),
+    onGift: (u, coins) => engine.processGift(u, coins),
     onChat:  () => {},
     onError: (msg) => setConnError(msg),
   });
@@ -94,3 +94,4 @@ export default function CannonBlastTool() {
     </GamePlanGate>
   );
 }
+

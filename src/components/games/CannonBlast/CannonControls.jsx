@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { BOOST_TIERS } from '@/hooks/useCannonEngine';
 
 export default function CannonControls({ engine, tiktok, connError, onClearError, overlayUrl }) {
-  const { phase, angle, activePowerMultiplier, boostQueue, setAngle, launch, reset } = engine;
+  const { phase, angle, activePowerMultiplier, boostQueue, setAngle, manualFire, reset } = engine;
   const { status, connect, disconnect, injectGift, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
   const [copied, setCopied] = useState(false);
@@ -77,7 +77,7 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
 
       {/* Launch / Reset buttons */}
       <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4 space-y-3">
-        <button onClick={() => launch('host')} disabled={isLaunched}
+        <button onClick={() => manualFire()} disabled={isLaunched}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-black text-sm tracking-widest hover:from-orange-400 hover:to-red-500 transition-all">
           💥 FIRE!
         </button>
@@ -136,3 +136,4 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
     </div>
   );
 }
+
