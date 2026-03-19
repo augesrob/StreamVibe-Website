@@ -1,331 +1,349 @@
 /**
- * CannonGame v3 — Ball Guys style
- * Shows chest picker before game, then rolling game canvas with camera follow
+ * CannonGame v4 — "Cannon Climb"
+ * Inclined slope, player ball rolls UP, enemy cannons fire DOWN.
+ * Camera follows ball up the slope.
+ * SVG coordinate system: slope runs bottom-left to top-right.
  */
-import React from 'react';
+import React, { useMemo } from 'react';
+import { SLOPE_ANGLE_DEG } from '@/hooks/useCannonEngine';
 
-const CANVAS_W = 860;
-const CANVAS_H = 280;
-const SHELF_Y  = CANVAS_H - 60; // ground/shelf level
-const BALL_R   = 16;
-const CANNON_X = 60;
+const CANVAS_W   = 860;
+const CANVAS_H   = 340;
+const SLOPE_RAD  = (SLOPE_ANGLE_DEG * Math.PI) / 180;
+const SLOPE_RISE = Math.sin(SLOPE_RAD); // y per px along slope
+const SLOPE_RUN  = Math.cos(SLOPE_RAD); // x per px along slope
+const SLOPE_ORIG_X = 60;                // slope starts here in canvas
+const SLOPE_ORIG_Y = CANVAS_H - 40;    // slope origin y in canvas
 
-// ── Chest picker ─────────────────────────────────────────────────────────────
-const TYPE_COLOR = { launch: '#00e5ff', bomb: '#ff4400', power: '#ffd700' };
-const TYPE_LABEL = { launch: '🚀 Launch', bomb: '💣 Bombs', power: '⚡ Power' };
+// Convert slope-distance + perpendicular offset → canvas x,y
+function slopeToCanvas(sx, py, camOffset) {
+  const wx = SLOPE_ORIG_X + (sx - camOffset) * SLOPE_RUN - py * SLOPE_RISE;
+  const wy = SLOPE_ORIG_Y - (sx - camOffset) * SLOPE_RISE - py * SLOPE_RUN;
+  return { cx: wx, cy: wy };
+}
 
-function ChestPicker({ chests, pickedChests, onPick, multipliers, phase }) {
-  const remaining = 3 - pickedChests.length;
+// Draw the slope surface
+function Slope({ camOffset }) {
+  const TOTAL = 6000;
+  const points = [];
+  // Bottom edge of slope (rendered surface)
+  for (let s = -200; s <= TOTAL; s += 50) {
+    const { cx, cy } = slopeToCanvas(s, 0, camOffset);
+    points.push(`${cx},${cy}`);
+  }
+  // Below the surface (fill downward)
+  const last = slopeToCanvas(TOTAL, 0, camOffset);
+  const first = slopeToCanvas(-200, 0, camOffset);
+
+  const surfacePts = points.join(' ');
+
+  // Distance markers every 100px (=10m)
+  const markers = [];
+  for (let m = 0; m <= 400; m += 10) {
+    const s = m * 10;
+    const { cx, cy } = slopeToCanvas(s, 0, camOffset);
+    if (cx < -20 || cx > CANVAS_W + 20) continue;
+    markers.push(
+      <g key={m}>
+        <line
+          x1={cx - SLOPE_RISE * 8} y1={cy - SLOPE_RUN * 8}
+          x2={cx + SLOPE_RISE * 8} y2={cy + SLOPE_RUN * 8}
+          stroke="#7a5a30" strokeWidth={1.5} />
+        <text x={cx - SLOPE_RISE * 18} y={cy + SLOPE_RUN * 10 + 4}
+          textAnchor="middle" fontSize={9} fill="#a07840">{m}m</text>
+      </g>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-center gap-4 p-6 bg-[#0d0e1a] rounded-2xl border-2 border-[#1e2240]">
-      {/* Cannon decorative */}
-      <div className="text-5xl">💥</div>
-
-      {/* Current multipliers panel */}
-      <div className="w-full max-w-xs bg-[#1a1830] border border-[#2a2840] rounded-xl p-3">
-        {[['launch', multipliers.launch], ['bomb', multipliers.bomb], ['power', multipliers.power]].map(([t, v]) => (
-          <div key={t} className="flex items-center gap-3 py-1.5 border-b border-[#2a2840] last:border-0">
-            <span className="text-lg w-8">{TYPE_LABEL[t].split(' ')[0]}</span>
-            <span className="text-sm font-bold text-gray-300 flex-1">{TYPE_LABEL[t].split(' ')[1]}</span>
-            <span className="font-black text-xl font-mono" style={{ color: TYPE_COLOR[t] }}>
-              {v === 1 ? 'X ?' : `${v}x`}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Instruction */}
-      <div className="text-center">
-        <p className="font-black text-yellow-400 text-lg tracking-wide">
-          {remaining > 0 ? `PICK ${remaining} CHEST${remaining > 1 ? 'S' : ''}` : '🎯 READY TO FIRE!'}
-        </p>
-      </div>
-
-      {/* 3×3 chest grid */}
-      <div className="grid grid-cols-3 gap-3">
-        {chests.map(chest => {
-          const picked = pickedChests.includes(chest.id);
-          return (
-            <button key={chest.id}
-              onClick={() => !picked && remaining > 0 && onPick(chest.id)}
-              disabled={picked || remaining === 0}
-              className="relative w-20 h-20 rounded-xl transition-all hover:scale-105 active:scale-95 disabled:cursor-default"
-              style={{
-                background: picked
-                  ? `linear-gradient(135deg, ${TYPE_COLOR[chest.type]}33, ${TYPE_COLOR[chest.type]}11)`
-                  : 'linear-gradient(135deg, #6b3a10, #8b5a20)',
-                border: picked
-                  ? `2px solid ${TYPE_COLOR[chest.type]}`
-                  : '2px solid #a07040',
-                boxShadow: picked ? `0 0 12px ${TYPE_COLOR[chest.type]}66` : '0 3px 0 #4a2a08',
-              }}>
-              {chest.revealed ? (
-                <div className="flex flex-col items-center justify-center h-full">
-                  <div className="text-xl">{TYPE_LABEL[chest.type].split(' ')[0]}</div>
-                  <div className="font-black text-lg font-mono" style={{ color: TYPE_COLOR[chest.type] }}>
-                    {chest.prize}x
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full gap-1">
-                  <div className="text-3xl">📦</div>
-                  <div className="w-8 h-1 rounded-full bg-yellow-600/50" />
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <>
+      {/* Slope fill */}
+      <polygon
+        points={`${surfacePts} ${last.cx},${CANVAS_H + 20} ${first.cx},${CANVAS_H + 20}`}
+        fill="#3a2010" />
+      {/* Slope surface */}
+      <polyline points={surfacePts} fill="none" stroke="#6a4020" strokeWidth={5} />
+      {/* Grass top edge */}
+      <polyline points={surfacePts} fill="none" stroke="#4a7a20" strokeWidth={3} />
+      {markers}
+    </>
   );
 }
 
-// ── Cannon SVG component ───────────────────────────────────────────────────
-function Cannon({ angle, phase }) {
-  const isAiming = phase === 'aiming';
+// ── Cannon (enemy) ────────────────────────────────────────────────────────
+function EnemyCannon({ sx, camOffset, telegraph, type }) {
+  const { cx, cy } = slopeToCanvas(sx, 0, camOffset);
+  if (cx < -60 || cx > CANVAS_W + 60) return null;
+  const isTelegraph = telegraph > 0;
+  const typeColor = { standard: '#cc3300', bouncy: '#7c4dff', explosive: '#ff6d00' }[type] ?? '#cc3300';
+
   return (
-    <g transform={`translate(${CANNON_X}, ${SHELF_Y})`}>
-      {/* Wheels */}
-      <circle cx={0}  cy={4} r={18} fill="#2a1a08" stroke="#5a3a10" strokeWidth={2.5} />
-      <circle cx={36} cy={4} r={18} fill="#2a1a08" stroke="#5a3a10" strokeWidth={2.5} />
-      <circle cx={0}  cy={4} r={6}  fill="#4a2a10" />
-      <circle cx={36} cy={4} r={6}  fill="#4a2a10" />
-      {/* Body */}
-      <rect x={-12} y={-10} width={62} height={20} rx={5} fill="#1a1008" stroke="#3a2008" strokeWidth={2} />
-      {/* Barrel rotates around pivot */}
-      <g transform={`rotate(${-angle}, 18, -4)`}>
-        <rect x={12} y={-12} width={72} height={22} rx={11} fill="#111" stroke="#444" strokeWidth={2} />
-        <rect x={76} y={-14} width={12} height={26} rx={5} fill="#0a0a0a" stroke="#333" strokeWidth={2} />
-        {/* Fuse */}
-        {phase !== 'rolling' && (
-          <>
-            <path d="M 18 -12 Q 24 -26 30 -20" stroke="#8B4513" strokeWidth={2.5} fill="none" strokeLinecap="round" />
-            <circle cx={30} cy={-20} r={4} fill={isAiming ? '#ff6600' : '#cc4400'}>
-              {isAiming && <animate attributeName="r" values="3;5;3" dur="0.25s" repeatCount="indefinite" />}
-            </circle>
-          </>
+    <g transform={`translate(${cx}, ${cy})`}>
+      {/* Telegraph flash */}
+      {isTelegraph && (
+        <circle r={28} fill={typeColor} opacity={0.25}>
+          <animate attributeName="opacity" values="0.1;0.4;0.1" dur="0.4s" repeatCount="indefinite" />
+        </circle>
+      )}
+      {/* Mount on slope */}
+      <rect x={-18} y={-8} width={36} height={14} rx={4}
+        fill="#1a1008" stroke="#3a2008" strokeWidth={2}
+        transform={`rotate(${-SLOPE_ANGLE_DEG})`} />
+      {/* Barrel pointing DOWN the slope */}
+      <g transform={`rotate(${180 + SLOPE_ANGLE_DEG})`}>
+        <rect x={0} y={-8} width={44} height={16} rx={8}
+          fill="#111" stroke="#444" strokeWidth={2} />
+        {isTelegraph && (
+          <ellipse cx={48} cy={0} rx={12} ry={8} fill={typeColor} opacity={0.9}>
+            <animate attributeName="rx" values="8;16;8" dur="0.3s" repeatCount="indefinite" />
+          </ellipse>
         )}
       </g>
-      {/* Muzzle flash on fire */}
-      {phase === 'rolling' && (
-        <g transform={`rotate(${-angle}, 18, -4)`}>
-          <ellipse cx={95} cy={-2} rx={18} ry={12} fill="#ff6600" opacity={0.85} />
-          <ellipse cx={95} cy={-2} rx={11} ry={7}  fill="#ffcc00" opacity={0.95} />
-        </g>
-      )}
+      {/* Type indicator */}
+      <text x={0} y={-22} textAnchor="middle" fontSize={12}>
+        {type === 'explosive' ? '💥' : type === 'bouncy' ? '🟣' : '🔴'}
+      </text>
     </g>
   );
 }
 
-// ── Ball ───────────────────────────────────────────────────────────────────
-function Ball({ wx, phase }) {
-  if (phase === 'idle' || phase === 'chest_pick' || phase === 'aiming') return null;
-  const py = SHELF_Y - BALL_R;
+// ── Safe zone alcove ──────────────────────────────────────────────────────
+function SafeZone({ sx, camOffset }) {
+  const { cx, cy } = slopeToCanvas(sx, 0, camOffset);
+  if (cx < -80 || cx > CANVAS_W + 80) return null;
   return (
-    <g transform={`translate(${wx}, ${py})`}>
-      <circle r={BALL_R} fill="#d8d8d8" stroke="#999" strokeWidth={2}
-        style={{ filter: 'drop-shadow(0 3px 5px rgba(0,0,0,0.6))' }} />
-      <circle cx={-5} cy={-5} r={4.5} fill="rgba(0,0,0,0.75)" />
-      <circle cx={5}  cy={-5} r={4.5} fill="rgba(0,0,0,0.75)" />
-      <path d="M -5 3 Q 0 7 5 3" stroke="rgba(0,0,0,0.75)" strokeWidth={2.5} fill="none" strokeLinecap="round" />
-      {/* Speed lines */}
-      {phase === 'rolling' && (
+    <g transform={`translate(${cx}, ${cy})`}>
+      {/* Raised bumper/alcove */}
+      <ellipse cx={0} cy={-8} rx={22} ry={12} fill="#1a3a00" stroke="#00cc44" strokeWidth={2} opacity={0.85} />
+      <text x={0} y={-4} textAnchor="middle" fontSize={10} fill="#00cc44">🛡</text>
+    </g>
+  );
+}
+
+// ── Projectile ────────────────────────────────────────────────────────────
+function Projectile({ sx, py, r, color, type, camOffset }) {
+  const { cx, cy } = slopeToCanvas(sx, py, camOffset);
+  if (cx < -40 || cx > CANVAS_W + 40) return null;
+  return (
+    <g transform={`translate(${cx}, ${cy})`}>
+      <circle r={r} fill={color} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5}
+        style={{ filter: `drop-shadow(0 0 ${type === 'explosive' ? 8 : 4}px ${color})` }} />
+      {type === 'explosive' && <circle r={r * 0.5} fill="#ffcc00" opacity={0.8} />}
+      {type === 'bouncy'    && <circle r={r * 0.45} fill="rgba(255,255,255,0.3)" />}
+      {/* Speed trail */}
+      <line x1={0} y1={0} x2={r + 14} y2={0} stroke={color} strokeWidth={2} opacity={0.4} />
+    </g>
+  );
+}
+
+// ── Explosion ─────────────────────────────────────────────────────────────
+function Explosion({ sx, py, r, color, camOffset }) {
+  const { cx, cy } = slopeToCanvas(sx, py, camOffset);
+  return (
+    <g transform={`translate(${cx}, ${cy})`}>
+      <circle r={r} fill={color} opacity={0.35} />
+      <circle r={r * 0.55} fill={color} opacity={0.6} />
+      <circle r={r * 0.25} fill="#fff" opacity={0.8} />
+      {[0,60,120,180,240,300].map((deg, i) => {
+        const rad = (deg * Math.PI) / 180;
+        return <line key={i} x1={0} y1={0}
+          x2={Math.cos(rad) * r * 0.9} y2={Math.sin(rad) * r * 0.9}
+          stroke={color} strokeWidth={3} opacity={0.7} />;
+      })}
+    </g>
+  );
+}
+
+// ── Player ball ───────────────────────────────────────────────────────────
+function PlayerBall({ sx, py, phase, camOffset }) {
+  if (phase === 'idle' || phase === 'aiming') return null;
+  const { cx, cy } = slopeToCanvas(sx, py, camOffset);
+  const isRagdoll = phase === 'ragdoll';
+
+  return (
+    <g transform={`translate(${cx}, ${cy})`}>
+      {isRagdoll && (
+        <circle r={26} fill="rgba(255,30,30,0.2)" stroke="rgba(255,30,30,0.5)" strokeWidth={2}>
+          <animate attributeName="r" values="22;30;22" dur="0.4s" repeatCount="indefinite" />
+        </circle>
+      )}
+      <circle r={16} fill={isRagdoll ? '#cc2200' : '#d8d8d8'}
+        stroke={isRagdoll ? '#ff4444' : '#999'} strokeWidth={2}
+        style={{ filter: `drop-shadow(0 3px 5px rgba(0,0,0,0.6))` }} />
+      {/* Eyes */}
+      {isRagdoll ? (
         <>
-          <line x1={-BALL_R - 2} y1={-3} x2={-BALL_R - 26} y2={-3} stroke="rgba(255,255,255,0.5)" strokeWidth={2.5} />
-          <line x1={-BALL_R - 2} y1={4}  x2={-BALL_R - 18} y2={4}  stroke="rgba(255,255,255,0.35}" strokeWidth={2} />
+          <line x1={-5} y1={-5} x2={-2} y2={-2} stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} />
+          <line x1={-2} y1={-5} x2={-5} y2={-2} stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} />
+          <line x1={2}  y1={-5} x2={5}  y2={-2} stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} />
+          <line x1={5}  y1={-5} x2={2}  y2={-2} stroke="rgba(255,255,255,0.9)" strokeWidth={2.5} />
+          <path d="M -4 4 Q 0 1 4 4" stroke="rgba(255,255,255,0.9)" strokeWidth={2} fill="none" />
+        </>
+      ) : (
+        <>
+          <circle cx={-5} cy={-4} r={4} fill="rgba(0,0,0,0.75)" />
+          <circle cx={5}  cy={-4} r={4} fill="rgba(0,0,0,0.75)" />
+          <path d="M -4 3 Q 0 7 4 3" stroke="rgba(0,0,0,0.75)" strokeWidth={2.5} fill="none" strokeLinecap="round" />
+        </>
+      )}
+      {/* Speed lines when climbing */}
+      {phase === 'climbing' && (
+        <>
+          <line x1={-16-2} y1={-2} x2={-16-20} y2={-2} stroke="rgba(255,255,255,0.5)" strokeWidth={2} />
+          <line x1={-16-2} y1={4}  x2={-16-13} y2={4}  stroke="rgba(255,255,255,0.35}" strokeWidth={1.5} />
         </>
       )}
     </g>
   );
 }
 
-// ── Bomb ───────────────────────────────────────────────────────────────────
-function Bomb({ wx, active }) {
-  if (!active) return null;
-  const py = SHELF_Y - 18;
+// ── Cannon at origin (player launch cannon) ────────────────────────────────
+function LaunchCannon({ angle, phase }) {
+  const ox = SLOPE_ORIG_X - 10;
+  const oy = SLOPE_ORIG_Y;
+  const isAiming = phase === 'aiming';
   return (
-    <g transform={`translate(${wx}, ${py})`}>
-      <ellipse cx={0} cy={20} rx={14} ry={5} fill="rgba(0,0,0,0.3)" />
-      <circle r={15} fill="#1a1a1a" stroke="#444" strokeWidth={2}
-        style={{ filter: 'drop-shadow(0 0 6px rgba(255,80,0,0.4))' }} />
-      <circle r={11} fill="#2a2a2a" />
-      <ellipse cx={-4} cy={-5} rx={4} ry={3} fill="rgba(255,255,255,0.12)" />
-      <path d="M 5 -15 Q 12 -26 8 -32" stroke="#8B4513" strokeWidth={2.5} fill="none" strokeLinecap="round" />
-      <circle cx={8} cy={-32} r={3} fill="#ff6600">
-        <animate attributeName="opacity" values="0.4;1;0.4" dur="0.5s" repeatCount="indefinite" />
-      </circle>
-      <text x={0} y={5} textAnchor="middle" fontSize={14}>💣</text>
-    </g>
-  );
-}
-
-// ── Power pickup ───────────────────────────────────────────────────────────
-function PowerPickup({ wx, active }) {
-  if (!active) return null;
-  const py = SHELF_Y - 18;
-  return (
-    <g transform={`translate(${wx}, ${py})`}>
-      <ellipse cx={0} cy={20} rx={12} ry={4} fill="rgba(0,0,0,0.25)" />
-      <rect x={-14} y={-15} width={28} height={28} rx={8}
-        fill="#0a2a00" stroke="#00cc44" strokeWidth={2}
-        style={{ filter: 'drop-shadow(0 0 8px rgba(0,200,60,0.5))' }} />
-      <text x={0} y={7} textAnchor="middle" fontSize={16}>⚡</text>
-    </g>
-  );
-}
-
-// ── Shelf / ground ─────────────────────────────────────────────────────────
-function Shelf({ totalWidth }) {
-  const markers = [];
-  for (let m = 0; m <= totalWidth / 10 + 50; m += 10) {
-    const wx = m * 10;
-    markers.push(
-      <g key={m}>
-        <line x1={wx} y1={SHELF_Y} x2={wx} y2={SHELF_Y + 14} stroke="#7a5a30" strokeWidth={1} />
-        <text x={wx} y={SHELF_Y + 26} textAnchor="middle" fontSize={10} fill="#a07840">{m}m</text>
+    <g transform={`translate(${ox}, ${oy})`}>
+      <circle cx={-4} cy={6} r={16} fill="#2a1a08" stroke="#5a3a10" strokeWidth={2} />
+      <circle cx={28} cy={6} r={16} fill="#2a1a08" stroke="#5a3a10" strokeWidth={2} />
+      <rect x={-16} y={-8} width={56} height={18} rx={5} fill="#1a1008" stroke="#3a2008" strokeWidth={2} />
+      {/* Barrel angled up the slope */}
+      <g transform={`rotate(${-(angle + SLOPE_ANGLE_DEG)}, 12, -2)`}>
+        <rect x={8} y={-9} width={56} height={18} rx={9} fill="#111" stroke="#444" strokeWidth={2} />
+        <rect x={58} y={-11} width={10} height={22} rx={4} fill="#0a0a0a" stroke="#333" strokeWidth={2} />
       </g>
-    );
-  }
-  const totalPx = (totalWidth / 10 + 60) * 10;
-  return (
-    <>
-      {/* Wooden shelf */}
-      <rect x={-40} y={SHELF_Y + 2} width={totalPx + 100} height={58} fill="#3a2010" />
-      <rect x={-40} y={SHELF_Y - 1} width={totalPx + 100} height={6}  fill="#6a4020" />
-      {/* Plank lines */}
-      {Array.from({ length: 6 }, (_, i) => (
-        <line key={i} x1={-40} y1={SHELF_Y + 10 + i * 8} x2={totalPx + 100} y2={SHELF_Y + 10 + i * 8}
-          stroke="rgba(0,0,0,0.12)" strokeWidth={1} />
-      ))}
-      {/* Vertical planks */}
-      {Array.from({ length: Math.ceil((totalPx + 140) / 120) }, (_, i) => (
-        <line key={`v${i}`} x1={-40 + i * 120} y1={SHELF_Y + 2} x2={-40 + i * 120} y2={SHELF_Y + 60}
-          stroke="rgba(0,0,0,0.15)" strokeWidth={1.5} />
-      ))}
-      {markers}
-    </>
-  );
-}
-
-// ── Landing flag ───────────────────────────────────────────────────────────
-function LandingFlag({ wx, distance, user }) {
-  if (!distance) return null;
-  return (
-    <g transform={`translate(${wx}, 0)`}>
-      <line x1={0} y1={SHELF_Y - 50} x2={0} y2={SHELF_Y} stroke="#ffd600" strokeWidth={2.5} strokeDasharray="5,4" />
-      <rect x={-56} y={SHELF_Y - 74} width={112} height={28} rx={8}
-        fill="rgba(0,0,0,0.85)" stroke="#ffd600" strokeWidth={2} />
-      <text x={0} y={SHELF_Y - 55} textAnchor="middle" fontSize={13} fontWeight="bold" fill="#ffd600">
-        {distance}m {user ? `@${user}` : ''}
-      </text>
+      {/* Fuse */}
+      {(phase === 'aiming' || phase === 'idle' || phase === 'landed') && (
+        <g>
+          <path d="M 12 -8 Q 18 -22 24 -16" stroke="#8B4513" strokeWidth={2.5} fill="none" strokeLinecap="round"/>
+          <circle cx={24} cy={-16} r={4} fill={isAiming ? '#ff6600' : '#993300'}>
+            {isAiming && <animate attributeName="r" values="3;5;3" dur="0.2s" repeatCount="indefinite" />}
+          </circle>
+        </g>
+      )}
+      {/* Muzzle flash on launch */}
+      {phase === 'climbing' && (
+        <g transform={`rotate(${-(angle + SLOPE_ANGLE_DEG)}, 12, -2)`}>
+          <ellipse cx={74} cy={0} rx={16} ry={10} fill="#ff6600" opacity={0.9} />
+          <ellipse cx={74} cy={0} rx={10} ry={6} fill="#ffcc00" opacity={0.95} />
+        </g>
+      )}
     </g>
   );
 }
 
-// ── Explosion ──────────────────────────────────────────────────────────────
-function Explosion({ wx, color }) {
-  const py = SHELF_Y - 20;
-  return (
-    <g transform={`translate(${wx}, ${py})`}>
-      {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => {
-        const r = (deg * Math.PI) / 180;
-        return <ellipse key={i} cx={Math.cos(r) * 22} cy={Math.sin(r) * 22}
-          rx={10} ry={7} fill={color} opacity={0.8} transform={`rotate(${deg})`} />;
-      })}
-      <circle r={16} fill={color} opacity={0.9} />
-      <circle r={9}  fill="#fff" opacity={0.75} />
-    </g>
-  );
-}
-
-// ── Main export ────────────────────────────────────────────────────────────
+// ── Main canvas export ─────────────────────────────────────────────────────
 export default function CannonGame({ engine }) {
-  const { phase, angle, ballX, cameraX, distance, topDistance,
-          activeBoost, worldObjects, explosions, lastShooter,
-          chests, pickedChests, pickChest, multipliers } = engine;
+  const {
+    phase, angle, ballSlopeDist, ballPerp, cameraOffset,
+    distance, topDistance, activeBoost, projectiles,
+    explosions, cannons, safeZones, ragdollTimer,
+  } = engine;
 
-  const totalW = Math.max(ballX + 2000, 5000);
-
-  if (phase === 'chest_pick' || (phase === 'idle' && chests.length > 0)) {
-    return (
-      <div className="flex flex-col gap-3">
-        <ChestPicker chests={chests} pickedChests={pickedChests}
-          onPick={pickChest} multipliers={multipliers} phase={phase} />
-        <StatsRow engine={engine} />
-      </div>
-    );
-  }
+  const RAGDOLL_TOTAL = 1800;
+  const ragdollPct = Math.min(1, ragdollTimer / RAGDOLL_TOTAL);
 
   return (
     <div className="flex flex-col gap-3">
       {/* Game canvas */}
       <div className="relative rounded-2xl overflow-hidden border-2 border-[#1e2240]"
-        style={{ height: CANVAS_H, background: 'linear-gradient(180deg,#5bbfea 0%,#a8d8f0 55%,#c8e0d0 100%)' }}>
-        <svg width="100%" height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-          preserveAspectRatio="xMidYMid meet">
-
-          {/* Sky */}
+        style={{ height: CANVAS_H, background: 'linear-gradient(180deg, #1a3060 0%, #2a508a 40%, #4a90c8 80%, #70b0d0 100%)' }}>
+        <svg width="100%" height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} preserveAspectRatio="xMidYMid meet">
+          {/* Sky gradient */}
           <defs>
             <linearGradient id="skyg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#5bbfea" />
-              <stop offset="100%" stopColor="#b8ddf0" />
+              <stop offset="0%" stopColor="#1a2a60" />
+              <stop offset="60%" stopColor="#3a70b0" />
+              <stop offset="100%" stopColor="#70b0d0" />
             </linearGradient>
           </defs>
           <rect width={CANVAS_W} height={CANVAS_H} fill="url(#skyg)" />
 
-          {/* Clouds (fixed in viewport) */}
-          {[[80,38],[200,22],[380,42],[560,28],[720,38]].map(([cx,cy],i) => (
-            <g key={i} transform={`translate(${cx},${cy})`} opacity={0.7}>
-              <ellipse cx={0} cy={0} rx={30} ry={18} fill="white" />
-              <ellipse cx={22} cy={-5} rx={22} ry={14} fill="white" />
-              <ellipse cx={-20} cy={-4} rx={20} ry={12} fill="white" />
+          {/* Background mountains */}
+          <polygon points="0,280 80,160 160,240 240,140 320,220 400,120 480,200 560,110 640,190 720,100 800,180 860,120 860,340 0,340"
+            fill="#1a4060" opacity={0.5} />
+          <polygon points="0,300 100,200 200,260 300,180 400,240 500,160 600,220 700,150 800,210 860,160 860,340 0,340"
+            fill="#1a3050" opacity={0.4} />
+
+          {/* Clouds */}
+          {[[100,50],[260,30],[450,55],[650,35]].map(([cx,cy],i)=>(
+            <g key={i} transform={`translate(${cx},${cy})`} opacity={0.5}>
+              <ellipse cx={0} cy={0} rx={28} ry={16} fill="white" />
+              <ellipse cx={20} cy={-5} rx={20} ry={12} fill="white" />
+              <ellipse cx={-18} cy={-4} rx={18} ry={11} fill="white" />
             </g>
           ))}
 
-          {/* Scrollable world */}
-          <g transform={`translate(${-cameraX}, 0)`}>
-            <Shelf totalWidth={totalW} />
-            <Cannon angle={angle} phase={phase} />
+          {/* Slope + objects */}
+          <Slope camOffset={cameraOffset} />
 
-            {worldObjects.map(obj =>
-              obj.type === 'bomb'
-                ? <Bomb  key={obj.id} wx={obj.x} active={obj.active} />
-                : <PowerPickup key={obj.id} wx={obj.x} active={obj.active} />
-            )}
+          {/* Safe zones */}
+          {safeZones.map((sx, i) => (
+            <SafeZone key={i} sx={sx} camOffset={cameraOffset} />
+          ))}
 
-            {explosions.map(e => <Explosion key={e.id} wx={e.x} color={e.color} />)}
+          {/* Enemy cannons */}
+          {cannons.map(c => (
+            <EnemyCannon key={c.id} sx={c.slopeDist} camOffset={cameraOffset}
+              telegraph={c.telegraph} type={c.type} />
+          ))}
 
-            <Ball wx={ballX} phase={phase} />
+          {/* Explosions */}
+          {explosions.map(e => (
+            <Explosion key={e.id} sx={e.sx} py={e.py ?? 0} r={e.r} color={e.color} camOffset={cameraOffset} />
+          ))}
 
-            {phase === 'landed' && (
-              <LandingFlag wx={ballX} distance={distance} user={lastShooter} />
-            )}
-          </g>
+          {/* Projectiles */}
+          {projectiles.map(p => (
+            <Projectile key={p.id} sx={p.sx} py={p.py} r={p.r}
+              color={p.color} type={p.type} camOffset={cameraOffset} />
+          ))}
 
-          {/* HUD: live distance */}
-          {(phase === 'rolling') && (
+          {/* Player ball */}
+          <PlayerBall sx={ballSlopeDist} py={ballPerp} phase={phase} camOffset={cameraOffset} />
+
+          {/* Launch cannon (always at origin, no camera) */}
+          {cameraOffset < 100 && <LaunchCannon angle={angle} phase={phase} />}
+
+          {/* Ragdoll recovery bar */}
+          {phase === 'ragdoll' && (
             <g>
-              <rect x={CANVAS_W - 124} y={10} width={114} height={40} rx={9}
-                fill="rgba(0,0,0,0.7)" stroke="rgba(255,215,0,0.5)" strokeWidth={1.5} />
-              <text x={CANVAS_W - 67} y={37} textAnchor="middle" fontSize={22}
-                fontWeight="900" fill="#ffd700" fontFamily="monospace">
-                {distance}m
-              </text>
+              <rect x={CANVAS_W/2 - 80} y={16} width={160} height={22} rx={6} fill="rgba(0,0,0,0.7)" stroke="#ff4444" strokeWidth={2} />
+              <rect x={CANVAS_W/2 - 78} y={18} width={156 * ragdollPct} height={18} rx={5} fill="#ff4444" />
+              <text x={CANVAS_W/2} y={32} textAnchor="middle" fontSize={11} fontWeight="bold" fill="white">😵 RECOVERING...</text>
             </g>
           )}
 
           {/* Aiming HUD */}
           {phase === 'aiming' && (
             <g>
-              <rect x={CANVAS_W/2 - 95} y={16} width={190} height={40} rx={10}
-                fill="rgba(255,100,0,0.9)" stroke="#ff6600" strokeWidth={2} />
-              <text x={CANVAS_W/2} y={41} textAnchor="middle" fontSize={17}
-                fontWeight="900" fill="white">🎯 AIMING...</text>
+              <rect x={CANVAS_W/2 - 95} y={16} width={190} height={36} rx={10} fill="rgba(255,100,0,0.9)" stroke="#ff6600" strokeWidth={2} />
+              <text x={CANVAS_W/2} y={39} textAnchor="middle" fontSize={16} fontWeight="900" fill="white">🎯 AIMING…</text>
+            </g>
+          )}
+
+          {/* Live distance HUD */}
+          {(phase === 'climbing' || phase === 'ragdoll') && (
+            <g>
+              <rect x={CANVAS_W - 126} y={10} width={116} height={38} rx={8} fill="rgba(0,0,0,0.7)" stroke="rgba(255,215,0,0.5)" strokeWidth={1.5} />
+              <text x={CANVAS_W - 68} y={35} textAnchor="middle" fontSize={21} fontWeight="900" fill="#ffd700" fontFamily="monospace">
+                {distance}m
+              </text>
+            </g>
+          )}
+
+          {/* Top record */}
+          {topDistance > 0 && (
+            <g>
+              <rect x={10} y={10} width={100} height={32} rx={7} fill="rgba(0,0,0,0.6)" stroke="rgba(255,215,0,0.3)" strokeWidth={1} />
+              <text x={60} y={30} textAnchor="middle" fontSize={12} fontWeight="bold" fill="#ffd700">
+                🏆 {topDistance}m
+              </text>
             </g>
           )}
         </svg>
 
-        {/* Boost pop */}
+        {/* Active boost pop */}
         {activeBoost && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <div className="px-5 py-2.5 rounded-2xl font-black text-lg text-black text-center animate-bounce"
@@ -337,26 +355,20 @@ export default function CannonGame({ engine }) {
         )}
       </div>
 
-      <StatsRow engine={engine} />
-    </div>
-  );
-}
-
-function StatsRow({ engine }) {
-  const { distance, topDistance, phase, multipliers } = engine;
-  return (
-    <div className="grid grid-cols-4 gap-2">
-      {[
-        ['Last Shot',   distance ? `${distance}m` : '—',        'text-cyan-400'],
-        ['Record',      topDistance ? `${topDistance}m` : '—',  'text-yellow-400'],
-        ['Launch',      `×${multipliers.launch.toFixed(1)}`,     'text-blue-400'],
-        ['Bombs',       `×${multipliers.bomb.toFixed(0)}`,       'text-red-400'],
-      ].map(([label, val, cls]) => (
-        <div key={label} className="bg-[#151828] border border-[#1e2240] rounded-xl p-2 text-center">
-          <div className="text-[9px] text-gray-600 uppercase tracking-widest">{label}</div>
-          <div className={`text-lg font-black font-mono ${cls}`}>{val}</div>
-        </div>
-      ))}
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          ['Distance',  distance ? `${distance}m` : '—',     'text-cyan-400'],
+          ['Record',    topDistance ? `${topDistance}m` : '—','text-yellow-400'],
+          ['Phase',     phase.toUpperCase(),                   'text-orange-400'],
+          ['Cannons',   `${cannons.length} active`,            'text-red-400'],
+        ].map(([label, val, cls]) => (
+          <div key={label} className="bg-[#151828] border border-[#1e2240] rounded-xl p-2 text-center">
+            <div className="text-[9px] text-gray-600 uppercase tracking-widest">{label}</div>
+            <div className={`text-sm font-black font-mono ${cls}`}>{val}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
