@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 
 export default function WordCenter({ engine, tiktok, connError, onClearError, overlayUrl }) {
   const { phase, remaining, startRound, finishRound, nextRound, fullReset } = engine;
-  const { status, connect, disconnect, injectChat, username: connUser } = tiktok;
+  const { status, isDemo, connect, disconnect, injectChat, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -20,7 +20,7 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
   const statusDot = {
     disconnected: 'bg-gray-600',
     connecting:   'bg-orange-500 animate-pulse',
-    connected:    'bg-green-500 shadow-[0_0_8px_#00e676]',
+    connected:    isDemo ? 'bg-yellow-500' : 'bg-green-500 shadow-[0_0_8px_#00e676]',
     error:        'bg-red-500',
   }[status] || 'bg-gray-600';
 
@@ -40,7 +40,7 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
   return (
     <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
 
-      {/* Overlay URL — with token, per user */}
+      {/* Overlay URL */}
       <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
         <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">
           🖥 Your Personal Overlay URL
@@ -79,7 +79,7 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
         {isFinished && <span className="text-red-400 text-xs font-bold tracking-widest animate-pulse">ROUND OVER</span>}
       </div>
 
-      {/* Error banner */}
+      {/* Real error banner — only for actual WebSocket errors, NOT demo mode */}
       {connError && (
         <div className="bg-red-950/30 border border-red-700/40 rounded-xl p-3 flex items-center justify-between text-red-400 text-sm">
           <span>⚠️ {connError}</span>
@@ -101,6 +101,14 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
             ? `CONNECTED (@${connUser}) — Click to Disconnect`
             : status === 'connecting' ? 'CONNECTING…' : '♪  CONNECT MY LIVE'}
         </button>
+
+        {/* Demo mode subtle note — replaces the scary red banner */}
+        {status === 'connected' && isDemo && (
+          <p className="text-[10px] text-yellow-600 text-center mt-2">
+            ⚡ Local mode — inject test chats below to try the game
+          </p>
+        )}
+
         {status !== 'connected' && (
           <div className="flex gap-2 mt-3">
             <input value={usernameInput} onChange={e => setUsernameInput(e.target.value)}
@@ -159,12 +167,13 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
         </div>
       )}
 
-      {import.meta.env.DEV && (
+      {/* Dev inject — available in demo/local mode too */}
+      {(import.meta.env.DEV || isDemo) && (
         <button
           onClick={() => tiktok.injectChat(`viewer${Math.floor(Math.random()*999)}`,
             `${engine.chatCommand} ${engine.possibleWords[Math.floor(Math.random()*engine.possibleWords.length)] || 'end'}`)}
           className="text-xs text-gray-700 hover:text-gray-500 border border-gray-800 rounded-lg py-2 text-center transition-colors">
-          🧪 Inject Test Chat (dev only)
+          🧪 Inject Test Chat
         </button>
       )}
     </div>

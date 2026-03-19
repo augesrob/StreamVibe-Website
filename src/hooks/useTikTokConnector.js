@@ -1,13 +1,21 @@
+/**
+ * useTikTokConnector — gifts-only connector (used by Auction tool)
+ *
+ * Connection flow:
+ *   1. Fetch relay /roomid → get wsUrl
+ *   2. Open WebSocket → live gifts
+ *   3. Fallback: relay unreachable → silent demo mode (no error banner)
+ *      Real errors (WS failure) still surface via onError.
+ */
 import { useState, useRef, useCallback } from 'react';
 
-/**
- * Connects to TikTok Live via the public tiktok-live-connector WebSocket API.
- * In a browser/Vercel context we hit the public TikTok WebSocket relay directly.
- * For coin counts we use diamondCount × repeatCount on streakable gifts.
- */
+const RELAY_URL = 'https://raykfnoptzzsdcvjupzf.supabase.co/functions/v1/tiktok-relay';
+const RELAY_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJheWtmbm9wdHp6c2Rjdmp1cHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MDkwMjcsImV4cCI6MjA4NTI4NTAyN30.hAAb2OLsdq4zPYQnKzzVYIVlDcGthhoIvIRMO-cUlvo';
+
 export function useTikTokConnector({ onGift, onError }) {
-  const [status, setStatus]   = useState('disconnected'); // disconnected|connecting|connected|error
+  const [status,   setStatus]   = useState('disconnected');
   const [username, setUsername] = useState('');
+  const [isDemo,   setIsDemo]   = useState(false);
   const wsRef  = useRef(null);
   const alive  = useRef(false);
 
@@ -15,6 +23,7 @@ export function useTikTokConnector({ onGift, onError }) {
     alive.current = false;
     if (wsRef.current) { try { wsRef.current.close(); } catch(_) {} wsRef.current = null; }
     setStatus('disconnected');
+    setIsDemo(false);
   }, []);
 
   const connect = useCallback(async (user) => {
@@ -23,35 +32,41 @@ export function useTikTokConnector({ onGift, onError }) {
     if (!clean) return;
     setUsername(clean);
     setStatus('connecting');
+    setIsDemo(false);
     alive.current = true;
 
     try {
-      // Use the public TikTok WebCast API via a CORS proxy or relay
-      // We'll call our own Supabase Edge Function relay so we don't need CORS
-      const res = await fetch(
-        `https://raykfnoptzzsdcvjupzf.supabase.co/functions/v1/tiktok-relay/roomid?username=${encodeURIComponent(clean)}`,
-        { headers: { Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJheWtmbm9wdHp6c2Rjdmp1cHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MDkwMjcsImV4cCI6MjA4NTI4NTAyN30.hAAb2OLsdq4zPYQnKzzVYIVlDcGthhoIvIRMO-cUlvo` } }
-      );
+      const res = await fetch(`${RELAY_URL}/roomid?username=${encodeURIComponent(clean)}`, {
+        headers: { Authorization: `Bearer ${RELAY_KEY}` },
+      });
       if (!alive.current) return;
 
       if (!res.ok) {
-        // Relay not yet deployed — use mock mode for local dev
+        console.warn('TikTok relay returned', res.status, '— demo mode');
         setStatus('connected');
+        setIsDemo(true);
         return;
       }
 
-      const { roomId, wsUrl } = await res.json();
+      const data = await res.json();
       if (!alive.current) return;
+
+      const wsUrl = data.wsUrl ?? data.ws_url ?? data.url;
+      if (!wsUrl) {
+        console.warn('TikTok relay gave no wsUrl — demo mode');
+        setStatus('connected');
+        setIsDemo(true);
+        return;
+      }
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
-      ws.onopen  = () => { if (alive.current) setStatus('connected'); };
+      ws.onopen  = () => { if (alive.current) { setStatus('connected'); setIsDemo(false); } };
       ws.onclose = () => { if (alive.current) setStatus('disconnected'); };
-      ws.onerror = (e) => {
+      ws.onerror = () => {
         if (!alive.current) return;
         setStatus('error');
-        onError?.('WebSocket error — check username or try again.');
+        onError?.('WebSocket error — check your TikTok username and try again.');
       };
       ws.onmessage = (e) => {
         if (!alive.current) return;
@@ -63,10 +78,9 @@ export function useTikTokConnector({ onGift, onError }) {
 
     } catch (err) {
       if (!alive.current) return;
-      // Relay not available — indicate connected in demo/mock mode
-      console.warn('TikTok relay unavailable, running in demo mode:', err.message);
+      console.warn('TikTok relay unreachable, demo mode:', err.message);
       setStatus('connected');
-      onError?.('Running in demo mode — live gifts not available until relay is deployed.');
+      setIsDemo(true);
     }
   }, [disconnect, onError]);
 
@@ -74,22 +88,19 @@ export function useTikTokConnector({ onGift, onError }) {
     try {
       const giftType  = data.giftDetails?.giftType  ?? data.giftType  ?? 0;
       const repeatEnd = data.repeatEnd ?? 1;
-      const isStreak  = giftType === 1;
-      if (isStreak && repeatEnd === 0) return; // mid-streak
-
-      const diamondCount = data.giftDetails?.diamondCount ?? data.diamondCount ?? 0;
-      const repeatCount  = Math.max(1, data.repeatCount ?? 1);
-      const coins        = diamondCount * repeatCount;
-      const user         = data.user?.uniqueId ?? data.uniqueId ?? 'unknown';
-
+      if (giftType === 1 && repeatEnd === 0) return;
+      const diamonds = data.giftDetails?.diamondCount ?? data.diamondCount ?? 0;
+      const repeat   = Math.max(1, data.repeatCount ?? 1);
+      const coins    = diamonds * repeat;
+      const user     = data.user?.uniqueId ?? data.uniqueId ?? 'unknown';
       if (coins > 0 && user !== 'unknown') onGift?.(user, coins);
     } catch(_) {}
   }
 
-  /** Call this to inject a test bid (demo/debug) */
+  /** Inject a test gift (dev/demo) */
   const injectTestBid = useCallback((user = 'testuser', coins = 100) => {
     onGift?.(user, coins);
   }, [onGift]);
 
-  return { status, username, connect, disconnect, injectTestBid };
+  return { status, username, isDemo, connect, disconnect, injectTestBid };
 }
