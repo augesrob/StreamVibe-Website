@@ -1,16 +1,22 @@
 /**
- * useTikTokConnector — gifts-only connector (used by Auction tool)
+ * useTikTokConnector — gifts-only (Auction tool)
  *
- * Connection flow:
- *   1. Fetch relay /roomid → get wsUrl
- *   2. Open WebSocket → live gifts
- *   3. Fallback: relay unreachable → silent demo mode (no error banner)
- *      Real errors (WS failure) still surface via onError.
+ * Connects via WebSocket to the StreamVibe Bridge (Railway):
+ *   wss://streamvibe-bridge-production.up.railway.app
+ *
+ * Protocol:
+ *   → { type:"connect_tiktok", username }
+ *   ← { type:"bridge_connected" }
+ *   ← { type:"tiktok_connected", username, roomId }
+ *   ← { type:"tiktok_disconnected", reason }
+ *   ← { type:"not_live", username, message }   (auto-retries every 30s server-side)
+ *   ← { type:"gift", username, giftName, coins, repeatCount, repeatEnd }
+ *   ← { type:"comment", username, message }
+ *   ← { type:"follow"|"share"|"like"|"join"|"viewers"|"subscribe" }
  */
 import { useState, useRef, useCallback } from 'react';
 
-const RELAY_URL = 'https://raykfnoptzzsdcvjupzf.supabase.co/functions/v1/tiktok-relay';
-const RELAY_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJheWtmbm9wdHp6c2Rjdmp1cHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MDkwMjcsImV4cCI6MjA4NTI4NTAyN30.hAAb2OLsdq4zPYQnKzzVYIVlDcGthhoIvIRMO-cUlvo';
+const BRIDGE_URL = 'wss://streamvibe-bridge-production.up.railway.app';
 
 export function useTikTokConnector({ onGift, onError }) {
   const [status,   setStatus]   = useState('disconnected');
@@ -21,14 +27,20 @@ export function useTikTokConnector({ onGift, onError }) {
 
   const disconnect = useCallback(() => {
     alive.current = false;
-    if (wsRef.current) { try { wsRef.current.close(); } catch(_) {} wsRef.current = null; }
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'disconnect_tiktok' }));
+        wsRef.current.close();
+      } catch (_) {}
+      wsRef.current = null;
+    }
     setStatus('disconnected');
     setIsDemo(false);
   }, []);
 
-  const connect = useCallback(async (user) => {
+  const connect = useCallback((user) => {
     disconnect();
-    const clean = user.replace('@', '').trim();
+    const clean = user.replace('@', '').trim().toLowerCase();
     if (!clean) return;
     setUsername(clean);
     setStatus('connecting');
@@ -36,65 +48,74 @@ export function useTikTokConnector({ onGift, onError }) {
     alive.current = true;
 
     try {
-      const res = await fetch(`${RELAY_URL}/roomid?username=${encodeURIComponent(clean)}`, {
-        headers: { Authorization: `Bearer ${RELAY_KEY}` },
-      });
-      if (!alive.current) return;
-
-      if (!res.ok) {
-        console.warn('TikTok relay returned', res.status, '— demo mode');
-        setStatus('connected');
-        setIsDemo(true);
-        return;
-      }
-
-      const data = await res.json();
-      if (!alive.current) return;
-
-      const wsUrl = data.wsUrl ?? data.ws_url ?? data.url;
-      if (!wsUrl) {
-        console.warn('TikTok relay gave no wsUrl — demo mode');
-        setStatus('connected');
-        setIsDemo(true);
-        return;
-      }
-
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(BRIDGE_URL);
       wsRef.current = ws;
-      ws.onopen  = () => { if (alive.current) { setStatus('connected'); setIsDemo(false); } };
-      ws.onclose = () => { if (alive.current) setStatus('disconnected'); };
+
+      ws.onopen = () => {
+        if (!alive.current) { ws.close(); return; }
+        ws.send(JSON.stringify({ type: 'connect_tiktok', username: clean }));
+      };
+
+      ws.onclose = () => {
+        if (!alive.current) return;
+        setStatus('disconnected');
+      };
+
       ws.onerror = () => {
         if (!alive.current) return;
         setStatus('error');
-        onError?.('WebSocket error — check your TikTok username and try again.');
+        onError?.('Bridge connection error — check your internet connection.');
       };
+
       ws.onmessage = (e) => {
         if (!alive.current) return;
         try {
           const msg = JSON.parse(e.data);
-          if (msg.type === 'gift') handleGift(msg.data);
-        } catch(_) {}
+          switch (msg.type) {
+            case 'bridge_connected':
+              // Server acknowledged — waiting for TikTok connection
+              break;
+            case 'tiktok_connected':
+              setStatus('connected');
+              setIsDemo(false);
+              break;
+            case 'not_live':
+              // User not live yet — bridge auto-retries every 30s, stay in connecting state
+              setStatus('connecting');
+              break;
+            case 'tiktok_disconnected':
+              if (msg.reason !== 'user_requested') setStatus('connecting');
+              break;
+            case 'gift':
+              handleGift(msg);
+              break;
+            case 'error':
+              onError?.(msg.message || 'TikTok error');
+              break;
+          }
+        } catch (_) {}
       };
 
     } catch (err) {
       if (!alive.current) return;
-      console.warn('TikTok relay unreachable, demo mode:', err.message);
-      setStatus('connected');
-      setIsDemo(true);
+      setStatus('error');
+      onError?.('Could not connect to StreamVibe Bridge.');
     }
   }, [disconnect, onError]);
 
   function handleGift(data) {
     try {
-      const giftType  = data.giftDetails?.giftType  ?? data.giftType  ?? 0;
-      const repeatEnd = data.repeatEnd ?? 1;
-      if (giftType === 1 && repeatEnd === 0) return;
-      const diamonds = data.giftDetails?.diamondCount ?? data.diamondCount ?? 0;
-      const repeat   = Math.max(1, data.repeatCount ?? 1);
-      const coins    = diamonds * repeat;
-      const user     = data.user?.uniqueId ?? data.uniqueId ?? 'unknown';
+      // Bridge sends: { username, giftName, coins, repeatCount, repeatEnd }
+      // coins = diamondCount (already calculated on bridge side)
+      const repeatEnd = data.repeatEnd ?? true;
+      const isStreak  = data.coins > 0 && !repeatEnd; // mid-streak on streakable gifts
+      // Only fire on completed gifts (repeatEnd=true) or non-streakable (repeatEnd always true)
+      if (isStreak) return;
+
+      const coins = (data.coins ?? 0) * Math.max(1, data.repeatCount ?? 1);
+      const user  = data.username ?? 'unknown';
       if (coins > 0 && user !== 'unknown') onGift?.(user, coins);
-    } catch(_) {}
+    } catch (_) {}
   }
 
   /** Inject a test gift (dev/demo) */

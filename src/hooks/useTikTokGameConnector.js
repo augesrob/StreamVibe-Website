@@ -1,36 +1,43 @@
 /**
- * useTikTokGameConnector
- * Extended TikTok connector that fires BOTH gift and chat events.
- * Drop-in replacement for useTikTokConnector when a game needs chat.
+ * useTikTokGameConnector — gifts + chat (Live Words, Cannon Blast)
  *
- * Connection flow:
- *   1. Fetch relay /roomid → get wsUrl
- *   2. Open WebSocket → live gifts + chat
- *   3. Fallback: relay unreachable → silent "connected" (demo mode, no error banner)
- *      Real errors (bad username, WS failure) still surface via onError.
+ * Connects via WebSocket to the StreamVibe Bridge (Railway):
+ *   wss://streamvibe-bridge-production.up.railway.app
+ *
+ * Protocol (same bridge, same server.js):
+ *   → { type:"connect_tiktok", username }
+ *   ← { type:"tiktok_connected" }   → status = 'connected'
+ *   ← { type:"not_live" }           → bridge auto-retries, we show 'connecting'
+ *   ← { type:"gift", username, giftName, coins, repeatCount, repeatEnd }
+ *   ← { type:"comment", username, message }
  */
 import { useState, useRef, useCallback } from 'react';
 
-const RELAY_URL = 'https://raykfnoptzzsdcvjupzf.supabase.co/functions/v1/tiktok-relay';
-const RELAY_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJheWtmbm9wdHp6c2Rjdmp1cHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MDkwMjcsImV4cCI6MjA4NTI4NTAyN30.hAAb2OLsdq4zPYQnKzzVYIVlDcGthhoIvIRMO-cUlvo';
+const BRIDGE_URL = 'wss://streamvibe-bridge-production.up.railway.app';
 
 export function useTikTokGameConnector({ onGift, onChat, onError }) {
   const [status,   setStatus]   = useState('disconnected');
   const [username, setUsername] = useState('');
-  const [isDemo,   setIsDemo]   = useState(false); // true when relay unreachable
+  const [isDemo,   setIsDemo]   = useState(false);
   const wsRef  = useRef(null);
   const alive  = useRef(false);
 
   const disconnect = useCallback(() => {
     alive.current = false;
-    if (wsRef.current) { try { wsRef.current.close(); } catch (_) {} wsRef.current = null; }
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'disconnect_tiktok' }));
+        wsRef.current.close();
+      } catch (_) {}
+      wsRef.current = null;
+    }
     setStatus('disconnected');
     setIsDemo(false);
   }, []);
 
-  const connect = useCallback(async (user) => {
+  const connect = useCallback((user) => {
     disconnect();
-    const clean = user.replace('@', '').trim();
+    const clean = user.replace('@', '').trim().toLowerCase();
     if (!clean) return;
     setUsername(clean);
     setStatus('connecting');
@@ -38,77 +45,79 @@ export function useTikTokGameConnector({ onGift, onChat, onError }) {
     alive.current = true;
 
     try {
-      const res = await fetch(`${RELAY_URL}/roomid?username=${encodeURIComponent(clean)}`, {
-        headers: { Authorization: `Bearer ${RELAY_KEY}` },
-      });
-      if (!alive.current) return;
-
-      // Relay not deployed or returned error → silent demo mode (same as useTikTokConnector)
-      if (!res.ok) {
-        console.warn('TikTok relay returned', res.status, '— running in demo mode');
-        setStatus('connected');
-        setIsDemo(true);
-        return;
-      }
-
-      const data = await res.json();
-      if (!alive.current) return;
-
-      const wsUrl = data.wsUrl ?? data.ws_url ?? data.url;
-      if (!wsUrl) {
-        // Relay responded but gave no WS URL — demo mode
-        console.warn('TikTok relay gave no wsUrl — running in demo mode');
-        setStatus('connected');
-        setIsDemo(true);
-        return;
-      }
-
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(BRIDGE_URL);
       wsRef.current = ws;
-      ws.onopen  = () => { if (alive.current) { setStatus('connected'); setIsDemo(false); } };
-      ws.onclose = () => { if (alive.current) setStatus('disconnected'); };
+
+      ws.onopen = () => {
+        if (!alive.current) { ws.close(); return; }
+        ws.send(JSON.stringify({ type: 'connect_tiktok', username: clean }));
+      };
+
+      ws.onclose = () => {
+        if (!alive.current) return;
+        setStatus('disconnected');
+      };
+
       ws.onerror = () => {
         if (!alive.current) return;
         setStatus('error');
-        onError?.('WebSocket error — check your TikTok username and try again.');
+        onError?.('Bridge connection error — check your internet connection.');
       };
+
       ws.onmessage = (e) => {
         if (!alive.current) return;
         try {
           const msg = JSON.parse(e.data);
-          if      (msg.type === 'gift') handleGift(msg.data);
-          else if (msg.type === 'chat') handleChat(msg.data);
+          switch (msg.type) {
+            case 'bridge_connected':
+              break; // waiting for TikTok session
+            case 'tiktok_connected':
+              setStatus('connected');
+              setIsDemo(false);
+              break;
+            case 'not_live':
+              // Not live yet — bridge retries every 30s automatically
+              setStatus('connecting');
+              break;
+            case 'tiktok_disconnected':
+              if (msg.reason !== 'user_requested') setStatus('connecting');
+              break;
+            case 'gift':
+              handleGift(msg);
+              break;
+            case 'comment':
+              handleChat(msg);
+              break;
+            case 'error':
+              onError?.(msg.message || 'TikTok error');
+              break;
+          }
         } catch (_) {}
       };
 
     } catch (err) {
       if (!alive.current) return;
-      // Network error / CORS / relay unreachable → silent demo mode
-      // Do NOT call onError here — this is expected when relay isn't deployed
-      // and matches how useTikTokConnector handles this case.
-      console.warn('TikTok relay unreachable, running in demo mode:', err.message);
-      setStatus('connected');
-      setIsDemo(true);
+      setStatus('error');
+      onError?.('Could not connect to StreamVibe Bridge.');
     }
   }, [disconnect, onError]);
 
   function handleGift(data) {
     try {
-      const giftType  = data.giftDetails?.giftType ?? data.giftType ?? 0;
-      const repeatEnd = data.repeatEnd ?? 1;
-      if (giftType === 1 && repeatEnd === 0) return; // mid-streak
-      const diamonds = data.giftDetails?.diamondCount ?? data.diamondCount ?? 0;
-      const repeat   = Math.max(1, data.repeatCount ?? 1);
-      const coins    = diamonds * repeat;
-      const user     = data.user?.uniqueId ?? data.uniqueId ?? 'unknown';
+      const repeatEnd = data.repeatEnd ?? true;
+      const isStreak  = data.coins > 0 && !repeatEnd;
+      if (isStreak) return; // mid-streak, wait for end
+
+      const coins = (data.coins ?? 0) * Math.max(1, data.repeatCount ?? 1);
+      const user  = data.username ?? 'unknown';
       if (coins > 0 && user !== 'unknown') onGift?.(user, coins);
     } catch (_) {}
   }
 
   function handleChat(data) {
     try {
-      const user    = data.user?.uniqueId ?? data.uniqueId ?? 'unknown';
-      const comment = data.comment ?? data.text ?? '';
+      const user    = data.username ?? 'unknown';
+      const comment = data.message  ?? '';
       if (user !== 'unknown' && comment) onChat?.(user, comment.trim());
     } catch (_) {}
   }

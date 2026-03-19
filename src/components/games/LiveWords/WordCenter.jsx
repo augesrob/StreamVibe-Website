@@ -17,15 +17,18 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
   const mins = String(Math.floor(remaining / 60)).padStart(2, '0');
   const secs = String(remaining % 60).padStart(2, '0');
 
+  // 'connecting' after a username is set = waiting for user to go live (bridge auto-retries)
+  const isWaitingLive = status === 'connecting' && !!connUser;
+
   const statusDot = {
     disconnected: 'bg-gray-600',
-    connecting:   'bg-orange-500 animate-pulse',
-    connected:    isDemo ? 'bg-yellow-500' : 'bg-green-500 shadow-[0_0_8px_#00e676]',
+    connecting:   isWaitingLive ? 'bg-yellow-500 animate-pulse' : 'bg-orange-500 animate-pulse',
+    connected:    'bg-green-500 shadow-[0_0_8px_#00e676]',
     error:        'bg-red-500',
   }[status] || 'bg-gray-600';
 
   const handleConnect = () => {
-    if (status === 'connected') { disconnect(); return; }
+    if (status === 'connected' || isWaitingLive) { disconnect(); return; }
     if (!usernameInput.trim()) return;
     connect(usernameInput.trim());
   };
@@ -35,6 +38,13 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
     navigator.clipboard.writeText(overlayUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const connectLabel = () => {
+    if (status === 'connected')  return `LIVE @${connUser} — Disconnect`;
+    if (isWaitingLive)           return `⏳ Waiting for @${connUser} to go LIVE... — Cancel`;
+    if (status === 'connecting') return 'CONNECTING…';
+    return '♪  CONNECT MY LIVE';
   };
 
   return (
@@ -79,7 +89,7 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
         {isFinished && <span className="text-red-400 text-xs font-bold tracking-widest animate-pulse">ROUND OVER</span>}
       </div>
 
-      {/* Real error banner — only for actual WebSocket errors, NOT demo mode */}
+      {/* Error banner — only for real errors, not waiting-for-live */}
       {connError && (
         <div className="bg-red-950/30 border border-red-700/40 rounded-xl p-3 flex items-center justify-between text-red-400 text-sm">
           <span>⚠️ {connError}</span>
@@ -94,22 +104,28 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
             flex items-center justify-center gap-2 transition-all
             ${status === 'connected'
               ? 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+              : isWaitingLive
+              ? 'bg-yellow-900/40 text-yellow-300 border border-yellow-800 hover:bg-yellow-900/60'
               : 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-black shadow-lg shadow-cyan-500/20'
             }`}>
           <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot}`} />
-          {status === 'connected'
-            ? `CONNECTED (@${connUser}) — Click to Disconnect`
-            : status === 'connecting' ? 'CONNECTING…' : '♪  CONNECT MY LIVE'}
+          {connectLabel()}
         </button>
 
-        {/* Demo mode subtle note — replaces the scary red banner */}
-        {status === 'connected' && isDemo && (
+        {/* Waiting-for-live explanation */}
+        {isWaitingLive && (
           <p className="text-[10px] text-yellow-600 text-center mt-2">
-            ⚡ Local mode — inject test chats below to try the game
+            Bridge is monitoring — will connect automatically when @{connUser} goes live
           </p>
         )}
 
-        {status !== 'connected' && (
+        {status === 'error' && (
+          <p className="text-[10px] text-red-500 text-center mt-2">
+            Connection failed — check your internet or try again
+          </p>
+        )}
+
+        {(status === 'disconnected' || status === 'error') && (
           <div className="flex gap-2 mt-3">
             <input value={usernameInput} onChange={e => setUsernameInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleConnect()}
@@ -167,13 +183,13 @@ export default function WordCenter({ engine, tiktok, connError, onClearError, ov
         </div>
       )}
 
-      {/* Dev inject — available in demo/local mode too */}
-      {(import.meta.env.DEV || isDemo) && (
+      {/* Dev inject */}
+      {import.meta.env.DEV && (
         <button
           onClick={() => tiktok.injectChat(`viewer${Math.floor(Math.random()*999)}`,
             `${engine.chatCommand} ${engine.possibleWords[Math.floor(Math.random()*engine.possibleWords.length)] || 'end'}`)}
           className="text-xs text-gray-700 hover:text-gray-500 border border-gray-800 rounded-lg py-2 text-center transition-colors">
-          🧪 Inject Test Chat
+          🧪 Inject Test Chat (dev only)
         </button>
       )}
     </div>
