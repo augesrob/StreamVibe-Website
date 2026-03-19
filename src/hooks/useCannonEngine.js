@@ -1,18 +1,15 @@
 /**
- * useCannonEngine v2 — Full physics with bouncing, bombs, power pickups, camera
- *
- * Phases: idle → aiming (wobble) → flying → bouncing → rolling → landed
- * Gifts auto-trigger aiming sequence → random angle → fire
- * World objects generated dynamically as ball travels
+ * useCannonEngine v3 — Ball Guys style
+ * Chest pick → aiming wobble → rolling along flat shelf → landed
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 export const BOOST_TIERS = {
-  small:  { label: 'Boost!',       color: '#00e5ff', power: 1.15, emoji: '💨', coins: [1,9]    },
-  medium: { label: 'Power Boost!', color: '#ffd600', power: 1.40, emoji: '⚡', coins: [10,99]   },
-  large:  { label: 'Super Boost!', color: '#ff6d00', power: 1.70, emoji: '🔥', coins: [100,999] },
-  mega:   { label: 'MEGA BLAST!',  color: '#ff1744', power: 2.20, emoji: '💥', coins: [1000,9999]},
-  ultra:  { label: 'ULTRA BLAST!', color: '#ea80fc', power: 5.00, emoji: '🌟', coins: [10000,Infinity]},
+  small:  { label: 'Boost!',       color: '#00e5ff', launchBonus: 80,  emoji: '💨', coins: [1,9]    },
+  medium: { label: 'Power Boost!', color: '#ffd600', launchBonus: 160, emoji: '⚡', coins: [10,99]   },
+  large:  { label: 'Super Boost!', color: '#ff6d00', launchBonus: 280, emoji: '🔥', coins: [100,999] },
+  mega:   { label: 'MEGA BLAST!',  color: '#ff1744', launchBonus: 500, emoji: '💥', coins: [1000,9999]},
+  ultra:  { label: 'ULTRA BLAST!', color: '#ea80fc', launchBonus: 900, emoji: '🌟', coins: [10000,Infinity]},
 };
 
 export function getBoostTier(coins) {
@@ -22,295 +19,269 @@ export function getBoostTier(coins) {
   return { id: 'small', ...BOOST_TIERS.small };
 }
 
-// Physics
-const GRAVITY      = 320;   // px/s² (world units = pixels/scale)
-const SCALE        = 5;     // pixels per metre
-const BASE_VX      = 160;   // px/s base horizontal speed
-const RESTITUTION  = 0.52;  // bounce energy retention
-const ROLL_FRICTION= 0.983; // per-tick horizontal friction while rolling
-const AIR_DRAG     = 0.9995;// per-tick horizontal air drag while flying
-const STOP_VX      = 8;     // px/s - stop rolling below this
-const STOP_VY      = 12;    // px/s - stop bouncing below this
-const TICK_MS      = 16;
+const LAUNCH_POOL = [1, 1.5, 2, 2.5, 3, 3.5];
+const BOMB_POOL   = [1, 2, 3, 4, 5, 6];
+const POWER_POOL  = [1, 1.5, 2, 3, 4, 5];
 
-// World object hit radius (in pixels)
-const BOMB_RADIUS  = 22;
-const POWER_RADIUS = 20;
-
-// Generate world objects for a chunk starting at worldX
-function generateChunk(startX, endX) {
+function generateShelf(bombMult, powerMult) {
   const objects = [];
-  let x = startX + 40 + Math.random() * 30;
-  while (x < endX) {
-    const type = Math.random() < 0.55 ? 'bomb' : 'power';
-    objects.push({ id: `${type}_${Math.round(x)}`, type, x, active: true });
-    x += 60 + Math.random() * 120;
+  const totalLen = 5000;
+  const bombCount  = Math.round(5 * bombMult);
+  const powerCount = Math.round(4 * powerMult);
+  const total = bombCount + powerCount;
+  const types = [...Array(bombCount).fill('bomb'), ...Array(powerCount).fill('power')].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < total; i++) {
+    const base = 180 + (i / total) * (totalLen - 300);
+    const x = base + (Math.random() - 0.5) * 80;
+    objects.push({ id: `${types[i]}_${i}`, type: types[i], x, active: true });
   }
-  return objects;
+  return objects.sort((a, b) => a.x - b.x);
 }
 
-export function useCannonEngine() {
-  // ── phase: idle | aiming | flying | bouncing | rolling | landed ──────────
-  const [phase,        setPhase]       = useState('idle');
-  const [angle,        setAngle]       = useState(45);       // display angle
-  const [ballPos,      setBallPos]     = useState({ x: 0, y: 0 });
-  const [cameraX,      setCameraX]     = useState(0);        // camera scroll px
-  const [distance,     setDistance]    = useState(0);
-  const [topDistance,  setTopDistance] = useState(0);
-  const [activeBoost,  setActiveBoost] = useState(null);
-  const [boostQueue,   setBoostQueue]  = useState([]);
-  const [worldObjects, setWorldObjects]= useState([]);       // bombs + powers
-  const [explosions,   setExplosions]  = useState([]);       // [{id,x,y,color}]
-  const [leaderboard,  setLeaderboard] = useState([]);
-  const [lastShooter,  setLastShooter] = useState(null);
-  const [roundCount,   setRoundCount]  = useState(0);
-  const [activePowerMultiplier, setActivePowerMultiplier] = useState(1);
+const TICK_MS  = 16;
+const FRICTION = 0.9984;
+const STOP_SPD = 5;
+const BASE_SPD = 500;
 
-  // Refs for use inside setInterval
+export function useCannonEngine() {
+  const [phase, setPhase]             = useState('idle');
+  const [angle, setAngle]             = useState(15);
+  const [ballX, setBallX]             = useState(0);
+  const [cameraX, setCameraX]         = useState(0);
+  const [distance, setDistance]       = useState(0);
+  const [topDistance, setTopDistance] = useState(0);
+  const [activeBoost, setActiveBoost] = useState(null);
+  const [boostQueue, setBoostQueue]   = useState([]);
+  const [worldObjects, setWorldObjects] = useState([]);
+  const [explosions, setExplosions]   = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [lastShooter, setLastShooter] = useState(null);
+  const [roundCount, setRoundCount]   = useState(0);
+  const [chests, setChests]           = useState([]);
+  const [pickedChests, setPickedChests] = useState([]);
+  const [multipliers, setMultipliers] = useState({ launch: 1, bomb: 1, power: 1 });
+
   const phaseRef    = useRef('idle');
-  const posRef      = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
+  const ballXRef    = useRef(0);
+  const vxRef       = useRef(0);
   const boostRef    = useRef([]);
-  const objRef      = useRef([]);         // world objects (mutable)
-  const multRef     = useRef(1);
+  const objRef      = useRef([]);
+  const multRef     = useRef({ launch: 1, bomb: 1, power: 1 });
   const timerRef    = useRef(null);
   const wobbleRef   = useRef(null);
   const shooterRef  = useRef('host');
+  const pickedRef   = useRef([]);
 
   const stopAll = useCallback(() => {
     if (timerRef.current)  { clearInterval(timerRef.current);  timerRef.current  = null; }
     if (wobbleRef.current) { clearInterval(wobbleRef.current); wobbleRef.current = null; }
   }, []);
 
-  // ── World object generation ───────────────────────────────────────────────
-  const genChunkRef = useRef(0); // furthest x chunk generated
+  // ── Build 9 chests ────────────────────────────────────────────────────────
+  const buildChests = useCallback(() => {
+    const launchPrizes = [...LAUNCH_POOL].sort(() => Math.random() - 0.5).slice(0, 3);
+    const bombPrizes   = [...BOMB_POOL].sort(() => Math.random() - 0.5).slice(0, 3);
+    const powerPrizes  = [...POWER_POOL].sort(() => Math.random() - 0.5).slice(0, 3);
+    const types = ['launch','launch','launch','bomb','bomb','bomb','power','power','power'];
+    const prizes = [...launchPrizes, ...bombPrizes, ...powerPrizes];
+    // Shuffle together
+    const arr = types.map((t, i) => ({ id: i, type: t, prize: prizes[i], revealed: false }))
+      .sort(() => Math.random() - 0.5).map((c, i) => ({ ...c, id: i }));
+    return arr;
+  }, []);
 
-  const ensureWorldGen = useCallback((ballX) => {
-    const needed = ballX + 2000;
-    if (needed > genChunkRef.current) {
-      const newObjs = generateChunk(genChunkRef.current, needed);
-      genChunkRef.current = needed;
-      objRef.current = [...objRef.current, ...newObjs];
-      setWorldObjects([...objRef.current]);
+  // ── Start chest pick phase ────────────────────────────────────────────────
+  const startChestPick = useCallback((shooter = 'host') => {
+    const p = phaseRef.current;
+    if (p === 'rolling' || p === 'aiming' || p === 'chest_pick') return;
+    shooterRef.current = shooter;
+    pickedRef.current = [];
+    multRef.current = { launch: 1, bomb: 1, power: 1 };
+    setChests(buildChests());
+    setPickedChests([]);
+    setMultipliers({ launch: 1, bomb: 1, power: 1 });
+    setPhase('chest_pick'); phaseRef.current = 'chest_pick';
+  }, [buildChests]);
+
+  // ── Pick a chest ──────────────────────────────────────────────────────────
+  const pickChest = useCallback((chestId) => {
+    if (phaseRef.current !== 'chest_pick') return;
+    if (pickedRef.current.includes(chestId)) return;
+    if (pickedRef.current.length >= 3) return;
+
+    pickedRef.current = [...pickedRef.current, chestId];
+    setPickedChests([...pickedRef.current]);
+
+    setChests(prev => prev.map(c => c.id === chestId ? { ...c, revealed: true } : c));
+
+    // Apply prize to multipliers
+    setChests(prev => {
+      const chest = prev.find(c => c.id === chestId);
+      if (!chest) return prev;
+      const newMult = { ...multRef.current };
+      newMult[chest.type] = newMult[chest.type] * chest.prize;
+      multRef.current = newMult;
+      setMultipliers({ ...newMult });
+      return prev.map(c => c.id === chestId ? { ...c, revealed: true } : c);
+    });
+
+    // Auto-advance when 3 picked
+    if (pickedRef.current.length >= 3) {
+      setTimeout(() => startAiming(), 800);
     }
   }, []);
 
-  // ── Physics tick ──────────────────────────────────────────────────────────
-  const runPhysics = useCallback((shooter) => {
-    stopAll();
+  // ── Aiming wobble ─────────────────────────────────────────────────────────
+  const startAiming = useCallback(() => {
+    setPhase('aiming'); phaseRef.current = 'aiming';
+    const start = Date.now();
+    const DURATION = 1600;
+    wobbleRef.current = setInterval(() => {
+      const elapsed = Date.now() - start;
+      if (elapsed >= DURATION) {
+        clearInterval(wobbleRef.current); wobbleRef.current = null;
+        const finalAngle = 5 + Math.floor(Math.random() * 25); // 5–30° (shallow, like Ball Guys)
+        setAngle(finalAngle);
+        setTimeout(() => fireRoll(finalAngle), 200);
+        return;
+      }
+      const t = elapsed / DURATION;
+      const a = 15 + Math.sin(t * Math.PI * 6) * 18 * (1 - t * 0.5);
+      setAngle(Math.max(2, Math.min(40, Math.round(a))));
+    }, 30);
+  }, []);
+
+  // ── Roll physics ──────────────────────────────────────────────────────────
+  const fireRoll = useCallback((finalAngle) => {
+    const m = multRef.current;
+    const queueBonus = boostRef.current.reduce((s, b) => s + b.launchBonus, 0);
+    const lastBoost  = boostRef.current[boostRef.current.length - 1] ?? null;
+    boostRef.current = []; setBoostQueue([]);
+
+    const startVx = (BASE_SPD * m.launch) + queueBonus;
+    if (lastBoost) { setActiveBoost(lastBoost); setTimeout(() => setActiveBoost(null), 2000); }
+
+    // Generate shelf
+    const objects = generateShelf(m.bomb, m.power);
+    objRef.current = objects;
+    setWorldObjects([...objects]);
+
+    ballXRef.current = 0;
+    vxRef.current    = startVx;
+    setBallX(0);
+    setCameraX(0);
+    setDistance(0);
+    setLastShooter(shooterRef.current);
+    setRoundCount(n => n + 1);
+    setPhase('rolling'); phaseRef.current = 'rolling';
+
+    const shooter = shooterRef.current;
     const dt = TICK_MS / 1000;
 
     timerRef.current = setInterval(() => {
-      const p = phaseRef.current;
-      if (p === 'idle' || p === 'aiming' || p === 'landed') { stopAll(); return; }
+      // Apply friction
+      vxRef.current *= FRICTION;
+      ballXRef.current += vxRef.current * dt;
 
-      let { x, y, vx, vy } = posRef.current;
-
-      // Gravity
-      vy -= GRAVITY * dt;
-
-      // Air drag (horizontal)
-      if (p === 'flying') vx *= AIR_DRAG;
-
-      // Move
-      x += vx * dt;
-      y += vy * dt;
-
-      // Ground collision
-      const groundY = 0;
-      if (y <= groundY) {
-        y = groundY;
-        if (Math.abs(vy) < STOP_VY) {
-          vy = 0;
-          // Rolling
-          vx *= ROLL_FRICTION;
-          if (phaseRef.current !== 'rolling') {
-            setPhase('rolling'); phaseRef.current = 'rolling';
-          }
-          if (Math.abs(vx) < STOP_VX) {
-            // Landed
-            stopAll();
-            const dist = Math.round(x / SCALE);
-            setPhase('landed'); phaseRef.current = 'landed';
-            setDistance(dist);
-            setTopDistance(prev => Math.max(prev, dist));
-            setLeaderboard(prev =>
-              [{ user: shooter, distance: dist, ts: Date.now() }, ...prev]
-                .sort((a,b) => b.distance - a.distance).slice(0, 10)
-            );
-            posRef.current = { x, y: 0, vx: 0, vy: 0 };
-            setBallPos({ x, y: 0 });
-            return;
-          }
-        } else {
-          vy = -vy * RESTITUTION;
-          if (phaseRef.current !== 'bouncing') {
-            setPhase('bouncing'); phaseRef.current = 'bouncing';
-          }
-        }
-      }
-
-      // Check world object collisions
-      const hitRadius = 28; // pixels
-      let hitObj = null;
+      // Check object collisions (within 28px)
+      const bx = ballXRef.current;
       for (const obj of objRef.current) {
         if (!obj.active) continue;
-        const dx = Math.abs(x - obj.x);
-        const dy = Math.abs(y - 0); // objects sit on ground
-        if (dx < hitRadius && dy < 40) {
-          hitObj = obj;
+        if (Math.abs(bx - obj.x) < 28) {
+          objRef.current = objRef.current.map(o => o.id === obj.id ? { ...o, active: false } : o);
+          setWorldObjects([...objRef.current]);
+          const expId = Date.now() + Math.random();
+          if (obj.type === 'bomb') {
+            vxRef.current += 220 + Math.random() * 80;
+            const col = '#ff4400';
+            setExplosions(p => [...p, { id: expId, x: bx, color: col }]);
+            setTimeout(() => setExplosions(p => p.filter(e => e.id !== expId)), 700);
+            setActiveBoost({ emoji: '💣', label: 'BOMB!', color: col });
+            setTimeout(() => setActiveBoost(null), 900);
+          } else {
+            vxRef.current *= 1.45;
+            const col = '#ffd700';
+            setExplosions(p => [...p, { id: expId, x: bx, color: col }]);
+            setTimeout(() => setExplosions(p => p.filter(e => e.id !== expId)), 500);
+            setActiveBoost({ emoji: '⚡', label: 'POWER!', color: col });
+            setTimeout(() => setActiveBoost(null), 700);
+          }
           break;
         }
       }
 
-      if (hitObj) {
-        // Deactivate object
-        objRef.current = objRef.current.map(o =>
-          o.id === hitObj.id ? { ...o, active: false } : o
+      // Camera follows ball
+      const CANVAS_W = 860;
+      setCameraX(Math.max(0, bx - CANVAS_W * 0.3));
+      setBallX(bx);
+      setDistance(Math.round(bx / 10)); // 10px = 1m
+
+      if (vxRef.current < STOP_SPD) {
+        stopAll();
+        const dist = Math.round(bx / 10);
+        setPhase('landed'); phaseRef.current = 'landed';
+        setDistance(dist);
+        setTopDistance(prev => Math.max(prev, dist));
+        setLeaderboard(prev =>
+          [{ user: shooter, distance: dist, ts: Date.now() }, ...prev]
+            .sort((a, b) => b.distance - a.distance).slice(0, 10)
         );
-        setWorldObjects([...objRef.current]);
-
-        if (hitObj.type === 'bomb') {
-          // Bomb: launch upward + forward
-          vx += 80 + Math.random() * 60;
-          vy  = 120 + Math.random() * 80;
-          y   = 5;
-          setPhase('flying'); phaseRef.current = 'flying';
-          // Explosion
-          const expColor = '#ff4400';
-          const expId = Date.now();
-          setExplosions(prev => [...prev, { id: expId, x, y: 0, color: expColor }]);
-          setTimeout(() => setExplosions(prev => prev.filter(e => e.id !== expId)), 800);
-          setActiveBoost({ emoji: '💣', label: 'BOMB!', color: expColor, user: null });
-          setTimeout(() => setActiveBoost(null), 1200);
-        } else {
-          // Power pickup: horizontal speed boost
-          vx *= 1.5;
-          vy  = Math.max(vy, 20);
-          const expColor = '#ffd700';
-          const expId = Date.now();
-          setExplosions(prev => [...prev, { id: expId, x, y: 0, color: expColor }]);
-          setTimeout(() => setExplosions(prev => prev.filter(e => e.id !== expId)), 600);
-          setActiveBoost({ emoji: '⚡', label: 'POWER!', color: expColor, user: null });
-          setTimeout(() => setActiveBoost(null), 1000);
-        }
       }
-
-      // Ensure world is generated ahead
-      ensureWorldGen(x);
-
-      // Update camera (follow ball, cannon stays at left ~20% of screen)
-      const CANVAS_W_PX = 860;
-      const camTarget = Math.max(0, x - CANVAS_W_PX * 0.28);
-      setCameraX(camTarget);
-
-      posRef.current = { x, y, vx, vy };
-      setBallPos({ x, y });
-      setDistance(Math.round(Math.max(0, x / SCALE)));
     }, TICK_MS);
-  }, [stopAll, ensureWorldGen]);
+  }, [stopAll]);
 
-  // ── Wobble then fire ──────────────────────────────────────────────────────
-  const fireWithWobble = useCallback((shooter = 'host') => {
-    if (phaseRef.current === 'flying' || phaseRef.current === 'bouncing' || phaseRef.current === 'rolling' || phaseRef.current === 'aiming') return;
-
-    setPhase('aiming'); phaseRef.current = 'aiming';
-    shooterRef.current = shooter;
-
-    // Drain boost queue
-    const queue = boostRef.current;
-    let totalMult = 1;
-    let lastBoost = null;
-    queue.forEach(b => { totalMult *= b.power; lastBoost = b; });
-    boostRef.current = [];
-    setBoostQueue([]);
-    multRef.current = totalMult;
-    setActivePowerMultiplier(totalMult);
-
-    // Wobble animation — barrel sweeps up and down
-    let wobbleT = 0;
-    const WOBBLE_DURATION = 1400; // ms
-    const wobbleStart = Date.now();
-
-    wobbleRef.current = setInterval(() => {
-      const elapsed = Date.now() - wobbleStart;
-      if (elapsed >= WOBBLE_DURATION) {
-        clearInterval(wobbleRef.current); wobbleRef.current = null;
-        // Pick random angle 25-65°
-        const finalAngle = 25 + Math.floor(Math.random() * 40);
-        setAngle(finalAngle);
-
-        // Reset world
-        const newObjects = generateChunk(0, 2000);
-        genChunkRef.current = 2000;
-        objRef.current = newObjects;
-        setWorldObjects(newObjects);
-
-        // Init ball
-        const rad = (finalAngle * Math.PI) / 180;
-        const spd = BASE_VX * totalMult;
-        posRef.current = { x: 0, y: 0, vx: spd * Math.cos(rad), vy: spd * Math.sin(rad) };
-
-        setLastShooter(shooter);
-        setRoundCount(n => n + 1);
-        if (lastBoost) {
-          setActiveBoost(lastBoost);
-          setTimeout(() => setActiveBoost(null), 2000);
-        }
-
-        setPhase('flying'); phaseRef.current = 'flying';
-        setBallPos({ x: 0, y: 0 });
-        setDistance(0);
-        setCameraX(0);
-        runPhysics(shooter);
-        return;
-      }
-      // Oscillate angle
-      const progress = elapsed / WOBBLE_DURATION;
-      const sweepAngle = 20 + Math.sin(progress * Math.PI * 5) * 25 + progress * 20;
-      setAngle(Math.max(10, Math.min(75, Math.round(sweepAngle))));
-    }, 30);
-  }, [runPhysics]);
-
+  // ── Gift handling ─────────────────────────────────────────────────────────
   const processGift = useCallback((user, coins) => {
     const tier = getBoostTier(coins);
     const boost = { ...tier, user, coins };
-    boostRef.current = [...boostRef.current, boost];
-    setBoostQueue([...boostRef.current]);
     const p = phaseRef.current;
-    if (p === 'idle' || p === 'landed') {
-      setTimeout(() => fireWithWobble(user), 200);
+    if (p === 'rolling') {
+      // Apply boost immediately during rolling
+      vxRef.current += boost.launchBonus;
+      setActiveBoost(boost);
+      setTimeout(() => setActiveBoost(null), 1500);
+    } else {
+      boostRef.current = [...boostRef.current, boost];
+      setBoostQueue([...boostRef.current]);
+      if (p === 'idle' || p === 'landed') {
+        setTimeout(() => startChestPick(user), 200);
+      }
     }
-  }, [fireWithWobble]);
+  }, [startChestPick]);
 
   const manualFire = useCallback(() => {
-    fireWithWobble('host');
-  }, [fireWithWobble]);
+    const p = phaseRef.current;
+    if (p === 'idle' || p === 'landed') startChestPick('host');
+    else if (p === 'chest_pick') {
+      // Auto-pick remaining chests and go
+      const remaining = chests.filter(c => !c.revealed).map(c => c.id);
+      // pick random ones up to 3 total
+      let toGo = 3 - pickedRef.current.length;
+      remaining.sort(() => Math.random() - 0.5).slice(0, toGo).forEach(id => pickChest(id));
+    }
+  }, [startChestPick, chests, pickChest]);
 
   const reset = useCallback(() => {
     stopAll();
     setPhase('idle'); phaseRef.current = 'idle';
-    setBallPos({ x: 0, y: 0 });
-    setDistance(0);
-    setCameraX(0);
-    setAngle(45);
-    boostRef.current = [];
-    setBoostQueue([]);
-    multRef.current = 1;
-    setActivePowerMultiplier(1);
-    setActiveBoost(null);
-    setExplosions([]);
-    setWorldObjects([]);
-    objRef.current = [];
-    genChunkRef.current = 0;
+    setBallX(0); ballXRef.current = 0;
+    setCameraX(0); vxRef.current = 0;
+    setDistance(0); setAngle(15);
+    boostRef.current = []; setBoostQueue([]);
+    setActiveBoost(null); setExplosions([]);
+    setWorldObjects([]); objRef.current = [];
+    setChests([]); setPickedChests([]);
+    setMultipliers({ launch: 1, bomb: 1, power: 1 });
+    multRef.current = { launch: 1, bomb: 1, power: 1 };
   }, [stopAll]);
 
   useEffect(() => () => stopAll(), [stopAll]);
 
   return {
-    phase, angle, ballPos, cameraX, distance, topDistance,
+    phase, angle, ballX, cameraX, distance, topDistance,
     activeBoost, boostQueue, worldObjects, explosions,
-    leaderboard, lastShooter, roundCount, activePowerMultiplier,
-    setAngle: useCallback(v => setAngle(Math.max(10, Math.min(75, v))), []),
-    manualFire, reset, processGift,
+    leaderboard, lastShooter, roundCount, multipliers,
+    chests, pickedChests,
+    pickChest, manualFire, reset, processGift,
   };
 }

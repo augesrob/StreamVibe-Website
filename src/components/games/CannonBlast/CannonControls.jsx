@@ -1,16 +1,13 @@
-/**
- * CannonControls — Left panel: angle, launch, boost queue, TikTok connect
- */
 import React, { useState } from 'react';
 import { BOOST_TIERS } from '@/hooks/useCannonEngine';
 
 export default function CannonControls({ engine, tiktok, connError, onClearError, overlayUrl }) {
-  const { phase, angle, activePowerMultiplier, boostQueue, setAngle, manualFire, reset } = engine;
-  const { status, connect, disconnect, injectGift, username: connUser } = tiktok;
+  const { phase, boostQueue, multipliers, chests, pickedChests, manualFire, reset } = engine;
+  const { status, connect, disconnect, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const isLaunched = phase === 'launched';
+  const isActive = phase === 'rolling' || phase === 'aiming';
 
   const statusDot = {
     disconnected: 'bg-gray-600', connecting: 'bg-orange-500 animate-pulse',
@@ -28,6 +25,11 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
     navigator.clipboard.writeText(overlayUrl);
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
+
+  const phaseLabel = {
+    idle: '⏳ IDLE', chest_pick: '📦 PICK CHESTS', aiming: '🎯 AIMING…',
+    rolling: '🔴 ROLLING', landed: '🏁 LANDED',
+  }[phase] ?? phase;
 
   return (
     <div className="flex flex-col gap-4 p-4 overflow-y-auto">
@@ -47,15 +49,10 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
         </div>
       </div>
 
-      {/* Angle control */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
-        <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">
-          🎯 Launch Angle: <span className="text-cyan-400">{angle}°</span>
-        </div>
-        <input type="range" min={10} max={80} value={angle}
-          onChange={e => setAngle(Number(e.target.value))}
-          className="w-full accent-cyan-500" />
-        <div className="flex justify-between text-[10px] text-gray-700 mt-0.5"><span>10°</span><span>80°</span></div>
+      {/* Phase status */}
+      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3 text-center">
+        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Status</div>
+        <div className="font-black text-sm text-white">{phaseLabel}</div>
       </div>
 
       {/* TikTok Connect */}
@@ -63,9 +60,9 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
         <button onClick={handleConnect}
           className={`w-full py-3 rounded-lg font-mono font-black text-sm tracking-widest flex items-center justify-center gap-2 transition-all
             ${status === 'connected' ? 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-            : 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-black shadow-lg shadow-cyan-500/20'}`}>
+            : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-black shadow-lg shadow-cyan-500/20'}`}>
           <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot}`} />
-          {status === 'connected' ? `CONNECTED (@${connUser}) — Disconnect` : status === 'connecting' ? 'CONNECTING…' : '♪  CONNECT MY LIVE'}
+          {status === 'connected' ? `@${connUser} — Disconnect` : status === 'connecting' ? 'CONNECTING…' : '♪  CONNECT MY LIVE'}
         </button>
         {status !== 'connected' && (
           <input value={usernameInput} onChange={e => setUsernameInput(e.target.value)}
@@ -75,60 +72,61 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
         )}
       </div>
 
-      {/* Launch / Reset buttons */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4 space-y-3">
-        <button onClick={() => manualFire()} disabled={isLaunched}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-mono font-black text-sm tracking-widest hover:from-orange-400 hover:to-red-500 transition-all">
-          💥 FIRE!
+      {/* Fire / Reset */}
+      <div className="space-y-2">
+        <button onClick={manualFire} disabled={isActive}
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 disabled:opacity-30 text-white font-mono font-black text-sm tracking-widest transition-all hover:from-orange-400 hover:to-red-500">
+          {phase === 'chest_pick' ? '⚡ AUTO-PICK & FIRE' : '🎯 START GAME'}
         </button>
         <button onClick={reset}
-          className="w-full py-2.5 rounded-xl bg-[#0a0b14] border border-[#1e2240] text-gray-400 hover:border-gray-500 font-mono font-black text-xs tracking-widest transition-all">
+          className="w-full py-2 rounded-xl bg-[#0a0b14] border border-[#1e2240] text-gray-400 hover:border-gray-500 font-mono font-black text-xs tracking-widest transition-all">
           ↺ RESET
         </button>
       </div>
 
       {/* Boost queue */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
-        <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-3">
-          ⚡ Boost Queue ({boostQueue.length})
+      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
+        <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">
+          ⚡ Pending Boosts ({boostQueue.length})
         </div>
         {boostQueue.length === 0 ? (
-          <p className="text-gray-700 text-xs text-center py-2">Waiting for gifts from viewers…</p>
+          <p className="text-gray-700 text-xs text-center py-1">Gifts boost the next shot!</p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {boostQueue.map((b, i) => (
-              <div key={i} className="flex items-center gap-2 bg-[#0a0b14] rounded-lg px-3 py-1.5 border border-[#1e2240]">
-                <span className="text-base">{b.emoji}</span>
-                <span className="text-xs font-bold" style={{ color: b.color }}>{b.label}</span>
-                <span className="text-gray-600 text-[10px] ml-auto">@{b.user}</span>
+              <div key={i} className="flex items-center gap-2 bg-[#0a0b14] rounded-lg px-2 py-1 border border-[#1e2240]">
+                <span>{b.emoji}</span>
+                <span className="text-xs font-bold flex-1" style={{ color: b.color }}>{b.label}</span>
+                <span className="text-gray-600 text-[10px]">@{b.user}</span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Gift → Boost guide */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4">
-        <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-3">🎁 Gift Boosts</div>
-        <div className="space-y-1.5">
-          {Object.entries(BOOST_TIERS).map(([id, tier]) => (
+      {/* Gift guide */}
+      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
+        <div className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">🎁 Gift = Boost</div>
+        <div className="space-y-1">
+          {Object.entries(BOOST_TIERS).map(([id, t]) => (
             <div key={id} className="flex items-center gap-2 text-xs">
-              <span>{tier.emoji}</span>
-              <span className="font-bold flex-1" style={{ color: tier.color }}>{tier.label}</span>
-              <span className="text-gray-600">{tier.coins[0]}-{tier.coins[1] === Infinity ? '∞' : tier.coins[1]} 🪙</span>
+              <span>{t.emoji}</span>
+              <span className="flex-1 font-bold" style={{ color: t.color }}>{t.label}</span>
+              <span className="text-gray-600">{t.coins[0]}–{t.coins[1] === Infinity ? '∞' : t.coins[1]} 🪙</span>
             </div>
           ))}
         </div>
-        <p className="text-[10px] text-gray-700 mt-2 text-center">Gifts auto-fire the cannon!</p>
+        <p className="text-[10px] text-gray-700 mt-2 text-center">Gifts trigger chest pick + fire!</p>
       </div>
 
       {/* Dev inject */}
       {import.meta.env.DEV && (
         <div className="space-y-1">
-          {Object.entries(BOOST_TIERS).map(([id, tier]) => (
-            <button key={id} onClick={() => engine.processGift(`viewer${Math.floor(Math.random()*99)}`, tier.coins[0])}
-              className="w-full text-xs border border-gray-800 rounded py-1 text-gray-600 hover:text-gray-400 transition-colors">
-              🧪 {tier.emoji} {tier.label} (dev)
+          {Object.entries(BOOST_TIERS).map(([id, t]) => (
+            <button key={id}
+              onClick={() => engine.processGift(`viewer${Math.floor(Math.random()*99)}`, t.coins[0])}
+              className="w-full text-xs border border-gray-800 rounded py-1 text-gray-600 hover:text-gray-400">
+              🧪 {t.emoji} {t.label}
             </button>
           ))}
         </div>
@@ -136,4 +134,3 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
     </div>
   );
 }
-
