@@ -1,23 +1,28 @@
 /**
- * CannonGame v5 — Proper Cannon Climb renderer
+ * CannonGame v6 — Ball Guys Cannon Climb renderer
  * 25° static incline. Ball rolls UP. Enemy cannons fire DOWN.
- * Camera scrolls with ball. Ball rotates/spins in stun state.
- * All positions in slope-units → converted to canvas px.
+ * Uses s2c(su, py, camSU) for all world→canvas mapping.
+ * Camera lerps smoothly — follows ball even when knocked back.
  */
 import React from 'react';
 
 const CANVAS_W  = 860;
 const CANVAS_H  = 340;
-const PX        = 20;           // px per slope-unit
+const PX        = 20;            // 1 slope-unit = 20 canvas pixels
 const SLOPE_DEG = 25;
 const SLOPE_RAD = (SLOPE_DEG * Math.PI) / 180;
 const COS       = Math.cos(SLOPE_RAD);
 const SIN       = Math.sin(SLOPE_RAD);
-const ORIG_X    = 55;           // slope origin in canvas
+const ORIG_X    = 55;
 const ORIG_Y    = CANVAS_H - 40;
 const BALL_R_PX = 11;
 
-// Slope-unit + perpendicular → canvas (cx, cy), accounting for camera
+/**
+ * s2c — Slope Units → Canvas pixels
+ * @param {number} su   — distance along slope (slope-space X)
+ * @param {number} py   — height perp to slope (slope-space Y)
+ * @param {number} camSU — camera position in slope-units
+ */
 function s2c(su, py, camSU) {
   const rel = su - camSU;
   return {
@@ -26,41 +31,37 @@ function s2c(su, py, camSU) {
   };
 }
 
-// ── Static slope surface ──────────────────────────────────────────────────
+// ── Slope surface + markers + alcoves ────────────────────────────────────
 function SlopeSurface({ camSU }) {
-  const pts = []; const markers = [];
-  for (let su = -5; su <= 280; su += 3) {
+  const pts = [];
+  for (let su = -5; su <= 300; su += 3) {
     const { cx, cy } = s2c(su, 0, camSU);
     pts.push(`${cx.toFixed(1)},${cy.toFixed(1)}`);
   }
-  const last  = s2c(280, 0, camSU);
+  const last  = s2c(300, 0, camSU);
   const first = s2c(-5,  0, camSU);
   const fill  = `${pts.join(' ')} ${last.cx},${CANVAS_H+10} ${first.cx},${CANVAS_H+10}`;
 
-  // Distance markers every 10 slope-units = 10m
-  for (let m = 0; m <= 260; m += 10) {
+  const markers = [];
+  for (let m = 0; m <= 300; m += 10) {
     const { cx, cy } = s2c(m, 0, camSU);
     if (cx < -10 || cx > CANVAS_W + 10) continue;
-    // Tick mark perpendicular to slope surface
-    const tx1 = cx + SIN * 5, ty1 = cy + COS * 5;
-    const tx2 = cx - SIN * 5, ty2 = cy - COS * 5;
     markers.push(
       <g key={m}>
-        <line x1={tx1} y1={ty1} x2={tx2} y2={ty2} stroke="#7a5a28" strokeWidth={1.5} />
-        <text x={cx - SIN * 14} y={cy + COS * 14 + 3}
+        <line x1={cx+SIN*5} y1={cy+COS*5} x2={cx-SIN*5} y2={cy-COS*5}
+          stroke="#7a5a28" strokeWidth={1.5}/>
+        <text x={cx-SIN*14} y={cy+COS*14+3}
           textAnchor="middle" fontSize={9} fill="#a07838">{m}m</text>
       </g>
     );
   }
-  // Safe zone alcoves
-  const alcoveSU = [30, 75, 140, 210];
-  const alcoves = alcoveSU.map((su, i) => {
+
+  const alcoves = [30, 78, 145, 215].map((su, i) => {
     const { cx, cy } = s2c(su, 0, camSU);
     if (cx < -30 || cx > CANVAS_W + 30) return null;
     return (
       <g key={i} transform={`translate(${cx},${cy})`}>
-        <ellipse cx={0} cy={-14} rx={18} ry={10}
-          fill="#0a2800" stroke="#22cc44" strokeWidth={2} opacity={0.9} />
+        <ellipse cx={0} cy={-14} rx={18} ry={10} fill="#0a2800" stroke="#22cc44" strokeWidth={2} opacity={0.9}/>
         <text x={0} y={-10} textAnchor="middle" fontSize={11}>🛡</text>
       </g>
     );
@@ -68,39 +69,38 @@ function SlopeSurface({ camSU }) {
 
   return (
     <>
-      <polygon points={fill} fill="#2e1a08" />
-      <polyline points={pts.join(' ')} fill="none" stroke="#5a3818" strokeWidth={6} />
-      <polyline points={pts.join(' ')} fill="none" stroke="#3a6a18" strokeWidth={3} />
+      <polygon points={fill} fill="#2e1a08"/>
+      <polyline points={pts.join(' ')} fill="none" stroke="#5a3818" strokeWidth={6}/>
+      <polyline points={pts.join(' ')} fill="none" stroke="#3a6a18" strokeWidth={3}/>
       {markers}
       {alcoves}
     </>
   );
 }
 
-// ── Enemy cannon on slope ─────────────────────────────────────────────────
+// ── Enemy cannon (mounts on slope, fires DOWN) ────────────────────────────
 function EnemyCannon({ su, camSU, telegraph, type }) {
   const { cx, cy } = s2c(su, 0, camSU);
   if (cx < -60 || cx > CANVAS_W + 60) return null;
-  const tCol = { standard:'#cc2200', bouncy:'#7c4dff', explosive:'#ff5500' }[type] ?? '#cc2200';
+  const col  = { standard:'#cc2200', bouncy:'#7c4dff', explosive:'#ff5500' }[type] ?? '#cc2200';
   const icon = { standard:'🔴', bouncy:'🟣', explosive:'💥' }[type];
   const flash = telegraph > 0;
-
   return (
     <g transform={`translate(${cx},${cy}) rotate(${-SLOPE_DEG})`}>
       {flash && (
-        <circle r={22} fill={tCol} opacity={0.3}>
-          <animate attributeName="opacity" values="0.15;0.5;0.15" dur="0.35s" repeatCount="indefinite"/>
+        <circle r={24} fill={col} opacity={0.28}>
+          <animate attributeName="opacity" values="0.12;0.45;0.12" dur="0.35s" repeatCount="indefinite"/>
         </circle>
       )}
-      {/* Base mount */}
       <rect x={-14} y={-8} width={28} height={12} rx={4} fill="#1a0c06" stroke="#3a200a" strokeWidth={2}/>
-      {/* Barrel pointing DOWN-LEFT (firing down the slope) */}
-      <g transform={`rotate(${180})`}>
+      <g transform="rotate(180)">
         <rect x={2} y={-7} width={40} height={14} rx={7} fill="#111" stroke="#444" strokeWidth={1.5}/>
         <rect x={38} y={-8.5} width={8} height={17} rx={3} fill="#0a0a0a" stroke="#333" strokeWidth={1.5}/>
-        {flash && <ellipse cx={50} cy={0} rx={10} ry={7} fill={tCol} opacity={0.9}>
-          <animate attributeName="rx" values="6;14;6" dur="0.25s" repeatCount="indefinite"/>
-        </ellipse>}
+        {flash && (
+          <ellipse cx={50} cy={0} rx={10} ry={7} fill={col} opacity={0.9}>
+            <animate attributeName="rx" values="6;14;6" dur="0.25s" repeatCount="indefinite"/>
+          </ellipse>
+        )}
       </g>
       <text x={0} y={-20} textAnchor="middle" fontSize={13}>{icon}</text>
     </g>
@@ -110,33 +110,32 @@ function EnemyCannon({ su, camSU, telegraph, type }) {
 // ── Projectile ────────────────────────────────────────────────────────────
 function Projectile({ su, py, r, color, type, camSU }) {
   const { cx, cy } = s2c(su, py, camSU);
-  if (cx < -30 || cx > CANVAS_W + 30 || cy < -30 || cy > CANVAS_H + 30) return null;
-  const glowR = type === 'explosive' ? 10 : 5;
+  if (cx < -30 || cx > CANVAS_W + 30) return null;
+  const glow = type === 'explosive' ? 10 : 4;
   return (
     <g transform={`translate(${cx},${cy})`}>
-      <circle r={r * PX} fill={color} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5}
-        style={{ filter: `drop-shadow(0 0 ${glowR}px ${color})` }}/>
+      <circle r={r * PX} fill={color} stroke="rgba(0,0,0,0.45)" strokeWidth={1.5}
+        style={{ filter:`drop-shadow(0 0 ${glow}px ${color})` }}/>
       {type === 'explosive' && <circle r={r*PX*0.5} fill="#ffcc00" opacity={0.85}/>}
-      {type === 'bouncy'    && <circle r={r*PX*0.4} fill="rgba(255,255,255,0.25)"/>}
-      {/* Trail indicating direction */}
-      <line x1={0} y1={0} x2={r*PX+12} y2={0} stroke={color} strokeWidth={2} opacity={0.4}/>
+      {type === 'bouncy'    && <circle r={r*PX*0.4} fill="rgba(255,255,255,0.22)"/>}
+      <line x1={0} y1={0} x2={r*PX+10} y2={0} stroke={color} strokeWidth={2} opacity={0.35}/>
     </g>
   );
 }
 
-// ── Explosion AOE ring ────────────────────────────────────────────────────
+// ── Explosion ─────────────────────────────────────────────────────────────
 function Explosion({ su, py, r, color, camSU }) {
   const { cx, cy } = s2c(su, py ?? 0, camSU);
   const rpx = r * PX;
   return (
     <g transform={`translate(${cx},${cy})`}>
-      <circle r={rpx}    fill={color} opacity={0.25}/>
-      <circle r={rpx*.6} fill={color} opacity={0.5}/>
-      <circle r={rpx*.3} fill="#fff"  opacity={0.8}/>
-      {[0,60,120,180,240,300].map((d,i)=>{
-        const rad=(d*Math.PI)/180;
+      <circle r={rpx}     fill={color} opacity={0.22}/>
+      <circle r={rpx*0.6} fill={color} opacity={0.5}/>
+      <circle r={rpx*0.3} fill="#fff"  opacity={0.8}/>
+      {[0,60,120,180,240,300].map((d,i) => {
+        const rad = (d*Math.PI)/180;
         return <line key={i} x1={0} y1={0}
-          x2={Math.cos(rad)*rpx*.85} y2={Math.sin(rad)*rpx*.85}
+          x2={Math.cos(rad)*rpx*0.85} y2={Math.sin(rad)*rpx*0.85}
           stroke={color} strokeWidth={2.5} opacity={0.7}/>;
       })}
     </g>
@@ -148,21 +147,18 @@ function PlayerBall({ su, py, phase, rotation, camSU }) {
   if (phase === 'idle' || phase === 'aiming') return null;
   const { cx, cy } = s2c(su, py ?? 0, camSU);
   const isStun = phase === 'stun';
-  const fill   = isStun ? '#bb1a00' : '#dcdcdc';
-  const stroke = isStun ? '#ff4444' : '#888';
 
   return (
     <g transform={`translate(${cx},${cy}) rotate(${rotation})`}>
-      {/* Stun pulse ring */}
       {isStun && (
         <circle r={22} fill="rgba(255,30,30,0.15)" stroke="rgba(255,30,30,0.5)" strokeWidth={2}>
           <animate attributeName="r" values="18;26;18" dur="0.35s" repeatCount="indefinite"/>
         </circle>
       )}
-      {/* Main body */}
-      <circle r={BALL_R_PX} fill={fill} stroke={stroke} strokeWidth={2}
+      <circle r={BALL_R_PX} fill={isStun ? '#bb1a00' : '#dcdcdc'}
+        stroke={isStun ? '#ff4444' : '#888'} strokeWidth={2}
         style={{ filter:'drop-shadow(0 3px 6px rgba(0,0,0,0.65))' }}/>
-      {/* Face (not rotated so eyes always face right) */}
+      {/* Face counter-rotates so eyes stay upright */}
       <g transform={`rotate(${-rotation})`}>
         {isStun ? (
           <>
@@ -180,37 +176,32 @@ function PlayerBall({ su, py, phase, rotation, camSU }) {
           </>
         )}
       </g>
-      {/* Speed lines (climbing only) */}
+      {/* Speed lines */}
       {phase === 'climbing' && (
         <>
-          <line x1={-BALL_R_PX-1} y1={-2} x2={-BALL_R_PX-18} y2={-2}
+          <line x1={-BALL_R_PX} y1={-2} x2={-BALL_R_PX-18} y2={-2}
             stroke="rgba(255,255,255,0.55)" strokeWidth={2.5}/>
-          <line x1={-BALL_R_PX-1} y1={4}  x2={-BALL_R_PX-11} y2={4}
-            stroke="rgba(255,255,255,0.35}" strokeWidth={2}/>
+          <line x1={-BALL_R_PX} y1={4}  x2={-BALL_R_PX-11} y2={4}
+            stroke="rgba(255,255,255,0.35)" strokeWidth={2}/>
         </>
       )}
     </g>
   );
 }
 
-// ── Launch cannon at slope origin ─────────────────────────────────────────
+// ── Launch cannon at origin ───────────────────────────────────────────────
 function LaunchCannon({ barrelAngle, phase, camSU }) {
-  if (camSU > 5) return null; // slides off screen as camera moves
-  const ox = ORIG_X - 8, oy = ORIG_Y;
+  if (camSU > 6) return null;
   const isAiming = phase === 'aiming';
   return (
-    <g transform={`translate(${ox},${oy})`}>
-      {/* Wheels */}
+    <g transform={`translate(${ORIG_X - 8},${ORIG_Y})`}>
       <circle cx={-2} cy={5} r={14} fill="#221408" stroke="#4a2a10" strokeWidth={2}/>
       <circle cx={26} cy={5} r={14} fill="#221408" stroke="#4a2a10" strokeWidth={2}/>
-      {/* Body */}
       <rect x={-12} y={-7} width={50} height={16} rx={4} fill="#160e04" stroke="#3a2008" strokeWidth={2}/>
-      {/* Barrel points up the slope at swept angle */}
       <g transform={`rotate(${-(barrelAngle + SLOPE_DEG)}, 12, -2)`}>
         <rect x={8} y={-8} width={52} height={16} rx={8} fill="#0e0e0e" stroke="#444" strokeWidth={2}/>
         <rect x={54} y={-10} width={9} height={20} rx={4} fill="#090909" stroke="#333" strokeWidth={2}/>
       </g>
-      {/* Fuse */}
       {(phase === 'aiming' || phase === 'idle' || phase === 'landed') && (
         <g>
           <path d="M 12 -7 Q 17 -20 23 -14" stroke="#7a3a0a" strokeWidth={2.5} fill="none" strokeLinecap="round"/>
@@ -219,7 +210,6 @@ function LaunchCannon({ barrelAngle, phase, camSU }) {
           </circle>
         </g>
       )}
-      {/* Muzzle flash */}
       {phase === 'climbing' && (
         <g transform={`rotate(${-(barrelAngle + SLOPE_DEG)}, 12, -2)`}>
           <ellipse cx={68} cy={0} rx={15} ry={9} fill="#ff5500" opacity={0.9}/>
@@ -230,37 +220,33 @@ function LaunchCannon({ barrelAngle, phase, camSU }) {
   );
 }
 
-// ── Main game canvas ──────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────
 export default function CannonGame({ engine }) {
   const {
-    phase, barrelAngle, ball, rotation, cameraOffset,
+    phase, barrelAngle, ballSU, ballPY, rotation, camSU,
     currentDistance, maxDistance, stunTimeLeft,
-    activeBoost, projectiles, explosions, cannons,
-    leaderboard,
+    activeBoost, projectiles, explosions, cannons, leaderboard,
   } = engine;
 
-  const camSU  = cameraOffset;
-  const su     = ball?.su  ?? 0;
-  const py     = ball?.py  ?? 0;
   const stunPct = Math.max(0, 1 - stunTimeLeft / 1500);
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Canvas */}
       <div className="relative rounded-2xl overflow-hidden border-2 border-[#1e2240]"
-        style={{ height: CANVAS_H, background: 'linear-gradient(180deg,#162050 0%,#1e408a 40%,#3a78b8 80%,#5aa0c8 100%)' }}>
-        <svg width="100%" height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} preserveAspectRatio="xMidYMid meet">
-          {/* Sky */}
+        style={{ height: CANVAS_H, background:'linear-gradient(180deg,#162050 0%,#1e408a 40%,#3a78b8 80%,#5aa0c8 100%)' }}>
+        <svg width="100%" height={CANVAS_H}
+          viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} preserveAspectRatio="xMidYMid meet">
+
           <defs>
             <linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#162050"/>
-              <stop offset="55%"  stopColor="#2860a8"/>
+              <stop offset="0%"  stopColor="#162050"/>
+              <stop offset="55%" stopColor="#2860a8"/>
               <stop offset="100%" stopColor="#5aa0c8"/>
             </linearGradient>
           </defs>
           <rect width={CANVAS_W} height={CANVAS_H} fill="url(#sk)"/>
 
-          {/* Mountains (static) */}
+          {/* Mountains */}
           <polygon points="0,270 80,155 160,235 240,135 320,215 400,115 480,195 560,105 640,185 720,95 800,175 860,115 860,340 0,340"
             fill="#1a3860" opacity={0.55}/>
           <polygon points="0,295 100,195 200,255 300,175 400,235 500,155 600,215 700,145 800,205 860,155 860,340 0,340"
@@ -275,33 +261,21 @@ export default function CannonGame({ engine }) {
             </g>
           ))}
 
-          {/* ── WORLD ── */}
+          {/* World — all positioned using s2c(su, py, camSU) */}
           <SlopeSurface camSU={camSU}/>
           <LaunchCannon barrelAngle={barrelAngle} phase={phase} camSU={camSU}/>
-
-          {/* Enemy cannons */}
           {cannons.map(c=>(
-            <EnemyCannon key={c.id} su={c.su} camSU={camSU}
-              telegraph={c.telegraph} type={c.type}/>
+            <EnemyCannon key={c.id} su={c.su} camSU={camSU} telegraph={c.telegraph} type={c.type}/>
           ))}
-
-          {/* Explosions */}
           {explosions.map(e=>(
             <Explosion key={e.id} su={e.su} py={e.py} r={e.r} color={e.color} camSU={camSU}/>
           ))}
-
-          {/* Projectiles */}
           {projectiles.map(p=>(
-            <Projectile key={p.id} su={p.su} py={p.py}
-              r={p.r} color={p.color} type={p.type} camSU={camSU}/>
+            <Projectile key={p.id} su={p.su} py={p.py} r={p.r} color={p.color} type={p.type} camSU={camSU}/>
           ))}
-
-          {/* Player ball */}
-          <PlayerBall su={su} py={py} phase={phase} rotation={rotation} camSU={camSU}/>
+          <PlayerBall su={ballSU} py={ballPY} phase={phase} rotation={rotation} camSU={camSU}/>
 
           {/* ── HUD ── */}
-
-          {/* Live distance */}
           {(phase==='climbing'||phase==='stun') && (
             <g>
               <rect x={CANVAS_W-122} y={10} width={112} height={36} rx={8}
@@ -311,7 +285,6 @@ export default function CannonGame({ engine }) {
             </g>
           )}
 
-          {/* Record */}
           {maxDistance > 0 && (
             <g>
               <rect x={10} y={10} width={96} height={30} rx={7}
@@ -322,7 +295,6 @@ export default function CannonGame({ engine }) {
             </g>
           )}
 
-          {/* Aiming HUD */}
           {phase==='aiming' && (
             <g>
               <rect x={CANVAS_W/2-95} y={14} width={190} height={34} rx={10}
@@ -333,7 +305,6 @@ export default function CannonGame({ engine }) {
             </g>
           )}
 
-          {/* Stun recovery bar */}
           {phase==='stun' && (
             <g>
               <rect x={CANVAS_W/2-85} y={14} width={170} height={26} rx={7}
@@ -345,14 +316,11 @@ export default function CannonGame({ engine }) {
             </g>
           )}
 
-          {/* Top 3 mini leaderboard */}
-          {leaderboard.length > 0 && (phase==='idle'||phase==='landed') && (
-            <g transform="translate(10, 50)">
-              <rect x={0} y={0} width={130} height={20+leaderboard.length*20} rx={8}
+          {leaderboard.length>0 && (phase==='idle'||phase==='landed') && (
+            <g transform="translate(10,50)">
+              <rect x={0} y={0} width={135} height={20+leaderboard.length*20} rx={8}
                 fill="rgba(0,0,0,0.75)" stroke="rgba(255,215,0,0.4)" strokeWidth={1.5}/>
-              <text x={65} y={15} textAnchor="middle" fontSize={10} fill="#ffd700" fontWeight="bold">
-                TOP 3
-              </text>
+              <text x={67} y={15} textAnchor="middle" fontSize={10} fill="#ffd700" fontWeight="bold">TOP 3</text>
               {leaderboard.slice(0,3).map((e,i)=>(
                 <g key={e.user} transform={`translate(8,${20+i*20})`}>
                   <text x={0} y={0} fontSize={10} fill={['#ffd700','#c0c0c0','#cd7f32'][i]}>
@@ -364,7 +332,6 @@ export default function CannonGame({ engine }) {
           )}
         </svg>
 
-        {/* Boost pop */}
         {activeBoost && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <div className="px-5 py-2.5 rounded-2xl font-black text-lg text-black text-center animate-bounce"
@@ -376,13 +343,12 @@ export default function CannonGame({ engine }) {
         )}
       </div>
 
-      {/* Stats bar */}
       <div className="grid grid-cols-4 gap-2">
         {[
           ['Distance',  currentDistance ? `${currentDistance}m` : '—', 'text-cyan-400'],
           ['Record',    maxDistance ? `${maxDistance}m` : '—',         'text-yellow-400'],
-          ['Phase',     phase.toUpperCase(),                             phase==='stun'?'text-red-400':phase==='climbing'?'text-green-400':'text-orange-400'],
-          ['Cannons',   `${cannons.length}`,                            'text-red-400'],
+          ['Phase',     phase.toUpperCase(), phase==='stun'?'text-red-400':phase==='climbing'?'text-green-400':'text-orange-400'],
+          ['Cannons',   String(cannons.length), 'text-red-400'],
         ].map(([l,v,c])=>(
           <div key={l} className="bg-[#151828] border border-[#1e2240] rounded-xl p-2 text-center">
             <div className="text-[9px] text-gray-600 uppercase tracking-widest">{l}</div>
