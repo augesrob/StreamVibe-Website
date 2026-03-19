@@ -1,405 +1,490 @@
 /**
- * useCannonEngine v6 — Ball Guys Cannon Climb
+ * useCannonEngine v7 — Real Ball Guys mechanics (from decompile)
  *
- * COORDINATE SYSTEM: Everything in Slope Units (SU).
- *   su  = distance along the 25° incline (X-axis of slope space)
- *   py  = height perpendicular to incline (Y-axis of slope space)
- *   s2c(su, py, camSU) in CannonGame.jsx maps → canvas pixels
+ * REAL GAME FLOW (from global-metadata.dat):
+ *   1. chest_pick   — Pick 3 chests → multipliers (launchPower, bombCount, bouncerCount)
+ *   2. charging     — chargeBar fills from hold/gifts. launcherFuels = shots remaining.
+ *   3. in_flight    — Ball arc (LaunchTrajectoryUI). Gravity pulls down. Gifts add mid-air boost.
+ *   4. rolling      — Ball on flat platform rolls RIGHT. Hits bombs (forward push),
+ *                     bouncers (upward deflect), power-ups (speed add).
+ *   5. landed       — Ball stops. Score = wx * floorZoneMultiplier.
  *
- * PLAYER PHYSICS:
- *   GravitySlope = g × sin(25°) always pulls velocity.su negative
- *   Rolling resistance: velocity.su decays toward negative when no boost active
- *   Boost: immediate impulse added to velocity.su
+ * COORDINATE SYSTEM: World Units (WU). 1 WU = 16px on canvas.
+ *   wx = distance along flat ground (0 = cannon, rightward positive)
+ *   wy = height above ground (0 = surface, up positive)
  *
- * STUN STATE (1.5s):
- *   InputEnabled = false
- *   High angularVelocity set → ball spins visually
- *   Knockback: projectile.mass subtracts from velocity.su (significant)
- *   After 1.5s: InputEnabled = true, angularVelocity reset
+ * TIKTOK GIFTS:
+ *   charging phase  → fills chargeBar by tier amount
+ *   in_flight phase → forward impulse (boost mid-air)
+ *   rolling phase   → forward impulse on ball
+ *   idle/landed     → auto-starts next round / adds launcherFuel
  *
- * PROJECTILES (match PROJ_INFO):
- *   standard  — high mass, disappears on hit, triggers stun
- *   bouncy    — high restitution (0.8), bounces off ball, STAYS ACTIVE as hazard
- *   explosive — dist(ball.su, proj.su) < 2.0 SU → radial force away from center
- *               Ground impact → 14 blast particles fan out, explosive despawns
- *
- * CAMERA: lerps toward ball su each tick (smooth follow + scrolls back on knockback)
- * LEADERBOARD: Top 3, updates whenever MaxDistance exceeded
+ * OBSTACLES (on flat platform):
+ *   bomb    — stationary. Ball hits → explosion: +fwd force, big visual
+ *   bouncer — spring bumper. Ball hits → upward deflect, bounces off
+ *   power   — speed pickup. Ball hits → +vx boost
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-export const SLOPE_ANGLE_DEG = 25;
-const RAD        = (SLOPE_ANGLE_DEG * Math.PI) / 180;
-export const SLOPE_COS = Math.cos(RAD);
-export const SLOPE_SIN = Math.sin(RAD);
+// ── World constants ───────────────────────────────────────────────────────
+export const PX_PER_WU   = 16;          // canvas pixels per world unit
+export const GRAVITY_WU  = 18;          // wu/s² downward (tuned for feel)
+export const FRICTION_GND= 0.988;       // rolling friction per tick
+export const BOUNCE_REST = 0.35;        // ball bounce off ground
+export const TICK_MS     = 16;
+const CAM_LERP           = 0.1;
+const CAM_LEAD_WU        = 10;
 
-const G           = 9.8;
-const GRAV_SLOPE  = G * Math.sin(RAD);   // ≈ 4.14 su/s² down slope
-const FRICTION    = 0.993;
-const STUN_MS     = 1500;
-const TICK_MS     = 16;
-const CAM_LERP    = 0.08;
-const CAM_LEAD_SU = 7;
+// Charge bar: 0–100. Fire threshold = chargeThreshold (40 by default).
+export const CHARGE_MAX  = 100;
+export const CHARGE_THRESHOLD = 30;     // min charge to fire (chargeThreshold)
+const CHARGE_HOLD_RATE   = 18;          // units/s when holding manually
+const CHARGE_DECAY_RATE  = 8;           // units/s decay when not holding
 
-export const BOOST_TIERS = {
-  small:  { label:'Boost!',  color:'#00e5ff', force:5.0,  emoji:'💨', coins:[1,9]          },
-  medium: { label:'Turbo!',  color:'#ffd600', force:15.0, emoji:'⚡', coins:[10,99]         },
-  large:  { label:'Super!',  color:'#ff6d00', force:25.0, emoji:'🔥', coins:[100,999]       },
-  mega:   { label:'MEGA!',   color:'#ff1744', force:35.0, emoji:'💥', coins:[1000,9999]     },
-  ultra:  { label:'ULTRA!',  color:'#ea80fc', force:50.0, emoji:'🌟', coins:[10000,Infinity]},
+// launchPower_base — scaled by chest multiplier
+const LAUNCH_POWER_BASE  = 38;          // wu/s at 100% charge
+const LAUNCH_ANGLE_DEG   = 42;          // fixed launch angle (tunable)
+const LAUNCH_RAD         = (LAUNCH_ANGLE_DEG * Math.PI) / 180;
+
+// ballGravity_base scaled by multiplier (we use 1.0 default)
+const BALL_GRAVITY_BASE  = GRAVITY_WU;
+const BALL_MASS_BASE     = 1.0;
+
+// Floor zone multiplier thresholds (DynamicFloorMultiplierThresholds)
+export const FLOOR_ZONES = [
+  { minWx: 0,   label: '1×', mult: 1, color: '#1a3a1a' },
+  { minWx: 50,  label: '2×', mult: 2, color: '#1a3a2a' },
+  { minWx: 100, label: '3×', mult: 3, color: '#1a3a3a' },
+  { minWx: 160, label: '4×', mult: 4, color: '#1a2a3a' },
+  { minWx: 220, label: '5×', mult: 5, color: '#2a1a3a' },
+];
+
+// Chest definitions — 3 types, each has 3 rarity tiers
+export const CHEST_TYPES = {
+  power:   { emoji:'⚡', label:'Power',   color:'#ffd600', desc:'Boosts launch power', tiers:[1.5, 2.0, 3.0] },
+  bomb:    { emoji:'💣', label:'Bombs',   color:'#ff6d00', desc:'More bombs on field', tiers:[2,   4,   6  ] },
+  bouncer: { emoji:'🟡', label:'Bouncer', color:'#7c4dff', desc:'Add spring bouncers', tiers:[2,   4,   6  ] },
 };
-export function getBoostTier(coins) {
-  for (const [id, t] of Object.entries(BOOST_TIERS))
+
+// Gift tiers — how much chargeBar fills (or in-flight boost)
+export const GIFT_TIERS = {
+  small:  { label:'Charge+',    color:'#00e5ff', chargeAdd:8,   force:3,  emoji:'💨', coins:[1,9]          },
+  medium: { label:'Big Charge!',color:'#ffd600', chargeAdd:18,  force:8,  emoji:'⚡', coins:[10,99]         },
+  large:  { label:'Super!',     color:'#ff6d00', chargeAdd:35,  force:16, emoji:'🔥', coins:[100,999]       },
+  mega:   { label:'MEGA!',      color:'#ff1744', chargeAdd:65,  force:30, emoji:'💥', coins:[1000,9999]     },
+  ultra:  { label:'ULTRA!',     color:'#ea80fc', chargeAdd:999, force:55, emoji:'🌟', coins:[10000,Infinity]},
+};
+export function getGiftTier(coins) {
+  for (const [id, t] of Object.entries(GIFT_TIERS))
     if (coins >= t.coins[0] && coins <= t.coins[1]) return { id, ...t };
-  return { id:'small', ...BOOST_TIERS.small };
+  return { id:'small', ...GIFT_TIERS.small };
 }
 
-const PROJ_INFO = {
-  standard:  { r:0.55, mass:5.0, gravScale:1.0,  restitution:0.0, color:'#cc2200', speed:18, aoe:0             },
-  bouncy:    { r:0.45, mass:1.5, gravScale:0.25, restitution:0.8, color:'#7c4dff', speed:14, aoe:0             },
-  explosive: { r:0.65, mass:3.0, gravScale:0.7,  restitution:0.0, color:'#ff6d00', speed:16, aoe:2.0, explosionPower:20 },
-};
-
-function buildCannons() {
-  return [
-    { id:0, su:20,  fireMs:2800, nextMs:1800, type:'standard',  telegraph:0 },
-    { id:1, su:42,  fireMs:2200, nextMs:900,  type:'standard',  telegraph:0 },
-    { id:2, su:68,  fireMs:3000, nextMs:1400, type:'bouncy',    telegraph:0 },
-    { id:3, su:95,  fireMs:1800, nextMs:700,  type:'standard',  telegraph:0 },
-    { id:4, su:128, fireMs:2600, nextMs:500,  type:'explosive', telegraph:0 },
-    { id:5, su:162, fireMs:1600, nextMs:300,  type:'standard',  telegraph:0 },
-    { id:6, su:200, fireMs:2200, nextMs:1100, type:'bouncy',    telegraph:0 },
-    { id:7, su:245, fireMs:1400, nextMs:600,  type:'explosive', telegraph:0 },
-  ];
+// ── Obstacle builders ────────────────────────────────────────────────────
+function buildObstacles(bombCount, bouncerCount) {
+  const obs = [];
+  let id = 0;
+  // Bombs — spread across platform, weighted toward middle-far
+  const bombPositions = [55, 80, 105, 130, 155, 180, 205, 235, 265, 295];
+  for (let i = 0; i < Math.min(bombCount, bombPositions.length); i++) {
+    obs.push({ id: id++, type: 'bomb',    wx: bombPositions[i], wy: 0, r: 1.8, active: true, color:'#ff6d00' });
+  }
+  // Bouncers
+  const bouncePositions = [65, 95, 125, 170, 200, 250];
+  for (let i = 0; i < Math.min(bouncerCount, bouncePositions.length); i++) {
+    obs.push({ id: id++, type: 'bouncer', wx: bouncePositions[i], wy: 0, r: 1.6, active: true, color:'#7c4dff' });
+  }
+  // Power pickups (fixed positions, always present)
+  [90, 145, 195].forEach(wx => {
+    obs.push({ id: id++, type: 'power', wx, wy: 1.5, r: 1.2, active: true, color:'#00e5ff' });
+  });
+  return obs;
 }
-export const SAFE_ZONES_SU = [30, 78, 145, 215];
 
+function getFloorZone(wx) {
+  let zone = FLOOR_ZONES[0];
+  for (const z of FLOOR_ZONES) { if (wx >= z.minWx) zone = z; else break; }
+  return zone;
+}
+
+// ── Main hook ─────────────────────────────────────────────────────────────
 export function useCannonEngine() {
 
-  const [phase,           setPhase]          = useState('idle');
-  const [barrelAngle,     setBarrelAngle]     = useState(35);
-  const [ballSU,          setBallSU]          = useState(0);
-  const [ballPY,          setBallPY]          = useState(0);
-  const [angularVelocity, setAngularVelocity] = useState(0);
-  const [rotation,        setRotation]        = useState(0);
-  const [camSU,           setCamSU]           = useState(0);
-  const [currentDistance, setCurrentDistance] = useState(0);
-  const [maxDistance,     setMaxDistance]     = useState(0);
-  const [stunTimeLeft,    setStunTimeLeft]    = useState(0);
-  const [activeBoost,     setActiveBoost]     = useState(null);
-  const [boostQueue,      setBoostQueue]      = useState([]);
-  const [projectiles,     setProjectiles]     = useState([]);
-  const [explosions,      setExplosions]      = useState([]);
-  const [cannons,         setCannons]         = useState(buildCannons);
-  const [leaderboard,     setLeaderboard]     = useState([]);
-  const [roundCount,      setRoundCount]      = useState(0);
-  const [blastParticles,  setBlastParticles]  = useState([]); // ground-impact blast particles
+  // React state → drives SVG render each tick
+  const [phase,         setPhase]        = useState('idle');
+  // idle | chest_pick | charging | in_flight | rolling | landed
+  const [chestsPicked,  setChestsPicked] = useState([]); // up to 3
+  const [multipliers,   setMultipliers]  = useState({ power:1, bomb:0, bouncer:0 });
+  const [chargeLevel,   setChargeLevel]  = useState(0);  // 0–100
+  const [fuelsLeft,     setFuelsLeft]    = useState(1);  // launcherFuels
+  const [ballWx,        setBallWx]       = useState(0);
+  const [ballWy,        setBallWy]       = useState(0);
+  const [ballRot,       setBallRot]      = useState(0);
+  const [camWx,         setCamWx]        = useState(0);
+  const [currentDist,   setCurrentDist]  = useState(0);
+  const [finalScore,    setFinalScore]   = useState(0);
+  const [bestScore,     setBestScore]    = useState(0);
+  const [obstacles,     setObstacles]    = useState([]);
+  const [explosions,    setExplosions]   = useState([]);
+  const [activeBoost,   setActiveBoost]  = useState(null);
+  const [boostQueue,    setBoostQueue]   = useState([]);
+  const [leaderboard,   setLeaderboard]  = useState([]);
+  const [roundCount,    setRoundCount]   = useState(0);
+  const [trajectory,    setTrajectory]   = useState([]); // arc preview points
+  const [floorZone,     setFloorZone]    = useState(FLOOR_ZONES[0]);
+  const [hitEffects,    setHitEffects]   = useState([]);
 
-  // All physics state in Refs — never useState inside setInterval
-  const phaseRef   = useRef('idle');
-  const velRef     = useRef({ su:0, py:0 });
-  const posRef     = useRef({ su:0, py:0 });
-  const angVelRef  = useRef(0);
-  const rotRef     = useRef(0);
-  const camRef     = useRef(0);
-  const stunRef    = useRef(0);
-  const inputRef   = useRef(true);
-  const maxDistRef = useRef(0);
-  const projRef    = useRef([]);
-  const cannonRef  = useRef(buildCannons());
-  const boostRef   = useRef([]);
-  const timerRef   = useRef(null);
-  const wobbleRef  = useRef(null);
-  const shooterRef = useRef('host');
-  const pidRef     = useRef(0);
+  // Refs — physics values safe inside setInterval
+  const phaseRef    = useRef('idle');
+  const posRef      = useRef({ wx:0, wy:0 });
+  const velRef      = useRef({ wx:0, wy:0 });
+  const camRef      = useRef(0);
+  const rotRef      = useRef(0);
+  const chargeRef   = useRef(0);
+  const holdingRef  = useRef(false);    // is fire button held?
+  const fuelsRef    = useRef(1);
+  const multRef     = useRef({ power:1, bomb:0, bouncer:0 });
+  const obsRef      = useRef([]);
+  const timerRef    = useRef(null);
+  const shooterRef  = useRef('host');
+  const bestRef     = useRef(0);
+  const boostRef    = useRef([]);
+  const hefRef      = useRef(0);        // hit effect id counter
 
   const stopAll = useCallback(() => {
-    if (timerRef.current)  { clearInterval(timerRef.current);  timerRef.current  = null; }
-    if (wobbleRef.current) { clearInterval(wobbleRef.current); wobbleRef.current = null; }
+    clearInterval(timerRef.current); timerRef.current = null;
   }, []);
 
-  // ── triggerStun — standalone so it always reads latest refs ──────────
-  const triggerStun = useCallback((currentVsu) => {
-    inputRef.current  = false;
-    stunRef.current   = STUN_MS;
-    angVelRef.current = (currentVsu < 0 ? 1 : -1) * (600 + Math.random() * 400);
-    setPhase('stun'); phaseRef.current = 'stun';
-    setStunTimeLeft(STUN_MS);
-    setActiveBoost({ emoji:'💥', label:'STUNNED!', color:'#ff1744', user:null });
-    setTimeout(() => { if (phaseRef.current === 'stun') setActiveBoost(null); }, 1000);
+  // ── Computed trajectory arc preview ───────────────────────────────────
+  const computeTrajectory = useCallback((chargeAmt, multPower) => {
+    const pct     = chargeAmt / CHARGE_MAX;
+    const speed   = LAUNCH_POWER_BASE * multPower * pct;
+    const vx0     = speed * Math.cos(LAUNCH_RAD);
+    const vy0     = speed * Math.sin(LAUNCH_RAD);
+    const pts     = [];
+    const dt      = 0.06;
+    let wx = 0, wy = 0, vx = vx0, vy = vy0;
+    for (let t = 0; t < 3.5 && wy >= 0; t += dt) {
+      pts.push({ wx: Math.round(wx * 10) / 10, wy: Math.round(wy * 10) / 10 });
+      vy -= GRAVITY_WU * dt;
+      wx += vx * dt;
+      wy += vy * dt;
+      if (wy < 0) { pts.push({ wx, wy: 0 }); break; }
+    }
+    setTrajectory(pts);
   }, []);
 
-  // ── endRun ────────────────────────────────────────────────────────────
-  const endRun = useCallback((shooter, finalSU) => {
-    const metres = Math.round(Math.max(0, maxDistRef.current));
-    setPhase('landed'); phaseRef.current = 'landed';
-    setCurrentDistance(metres);
-    setBallSU(Math.max(0, finalSU));
-    setMaxDistance(prev => Math.max(prev, metres));
-    setLeaderboard(prev => {
-      const next = [...prev, { user:shooter, distance:metres, ts:Date.now() }]
-        .sort((a,b) => b.distance - a.distance);
-      const seen = new Set();
-      return next.filter(e => { if (seen.has(e.user)) return false; seen.add(e.user); return true; }).slice(0,3);
+  // ── Chest pick logic ─────────────────────────────────────────────────
+  const pickChest = useCallback((chestType) => {
+    if (phaseRef.current !== 'chest_pick') return;
+    setChestsPicked(prev => {
+      if (prev.length >= 3) return prev;
+      const next = [...prev, chestType];
+      // When 3 picked, compute multipliers and move to charging
+      if (next.length === 3) {
+        const m = { power: 1, bomb: 2, bouncer: 2 }; // defaults
+        next.forEach(t => {
+          const tier = Math.floor(Math.random() * 3); // random rarity tier
+          if (t === 'power')   m.power = CHEST_TYPES.power.tiers[tier];
+          if (t === 'bomb')    m.bomb  += CHEST_TYPES.bomb.tiers[tier];
+          if (t === 'bouncer') m.bouncer += CHEST_TYPES.bouncer.tiers[tier];
+        });
+        multRef.current = m;
+        setMultipliers(m);
+        const obs = buildObstacles(m.bomb, m.bouncer);
+        obsRef.current = obs;
+        setObstacles(obs);
+        setTimeout(() => {
+          setPhase('charging'); phaseRef.current = 'charging';
+          computeTrajectory(0, m.power);
+        }, 600);
+      }
+      return next;
     });
+  }, [computeTrajectory]);
+
+  // ── Charge bar hold start / end ───────────────────────────────────────
+  const startHold = useCallback(() => {
+    if (phaseRef.current !== 'charging') return;
+    holdingRef.current = true;
   }, []);
 
-  // ── updateTick — core physics. All reads/writes go through Refs ──────
+  const endHold = useCallback(() => {
+    holdingRef.current = false;
+    if (phaseRef.current === 'charging' && chargeRef.current >= CHARGE_THRESHOLD) {
+      fireBall();
+    }
+  }, []); // fireBall defined below via ref
+
+  // ── Fire ball ─────────────────────────────────────────────────────────
+  const fireBallRef = useRef(null);
+  const fireBall = useCallback(() => {
+    if (phaseRef.current !== 'charging') return;
+    if (chargeRef.current < CHARGE_THRESHOLD) return;
+    const pct   = chargeRef.current / CHARGE_MAX;
+    const speed = LAUNCH_POWER_BASE * multRef.current.power * pct;
+    velRef.current = {
+      wx: speed * Math.cos(LAUNCH_RAD),
+      wy: speed * Math.sin(LAUNCH_RAD),
+    };
+    posRef.current  = { wx: 0, wy: 0 };
+    rotRef.current  = 0;
+    camRef.current  = 0;
+    setPhase('in_flight'); phaseRef.current = 'in_flight';
+    setRoundCount(n => n + 1);
+    setTrajectory([]);
+    setExplosions([]); setHitEffects([]);
+    timerRef.current = updateTick(shooterRef.current);
+  }, []);
+  useEffect(() => { fireBallRef.current = fireBall; }, [fireBall]);
+  // Patch endHold reference
+  const endHoldFinal = useCallback(() => {
+    holdingRef.current = false;
+    if (phaseRef.current === 'charging' && chargeRef.current >= CHARGE_THRESHOLD)
+      fireBallRef.current?.();
+  }, []);
+
+  // ── Main physics tick ─────────────────────────────────────────────────
   const updateTick = useCallback((shooter) => {
     const dt = TICK_MS / 1000;
     return setInterval(() => {
       const p = phaseRef.current;
-      if (p === 'idle' || p === 'landed') return;
 
-      let { su, py }       = posRef.current;
-      let { su:vsu, py:vpy } = velRef.current;
-      let angV = angVelRef.current;
-
-      // 1. SLOPE GRAVITY — vsu -= g×sin(25°)×dt every tick
-      vsu -= GRAV_SLOPE * dt;
-
-      // 2. PERPENDICULAR GRAVITY — keeps ball on surface
-      vpy -= G * Math.cos(RAD) * dt;
-      if (py <= 0 && vpy < 0) { py = 0; vpy = 0; }
-
-      // 3. ROLLING RESISTANCE — friction only while on surface
-      if (py <= 0.01) vsu *= FRICTION;
-
-      // 4. STUN — InputEnabled=false, ball spins with torque decay
-      if (p === 'stun') {
-        stunRef.current -= TICK_MS;
-        setStunTimeLeft(Math.max(0, stunRef.current));
-        angV *= 0.96;                               // torque decays ×0.96/tick
-        rotRef.current = (rotRef.current + angV * dt) % 360;
-        angVelRef.current = angV;
-        if (stunRef.current <= 0) {
-          inputRef.current  = true;
-          angVelRef.current = vsu * 15;
-          setPhase('climbing'); phaseRef.current = 'climbing';
-          setActiveBoost(null);
-        }
-      } else if (p === 'climbing') {
-        // 5. ANGULAR VELOCITY — angVel ∝ vsu (forward climb = forward spin)
-        angVelRef.current = vsu * 15;
-        rotRef.current = (rotRef.current + angVelRef.current * dt) % 360;
-      }
-
-      su += vsu * dt;
-      py  = Math.max(0, py + vpy * dt);
-
-      if (su <= 0) { stopAll(); endRun(shooter, su); return; }
-
-      // 6. CAMERA LERP — targetCam = max(0, su - CAM_LEAD), lerp factor 0.08
-      const targetCam = Math.max(0, su - CAM_LEAD_SU);
-      camRef.current  = camRef.current + (targetCam - camRef.current) * CAM_LERP;
-
-      posRef.current = { su, py };
-      velRef.current = { su:vsu, py:vpy };
-
-      // 7. CANNON TIMERS + FIRING
-      const newCannons = cannonRef.current.map(c => {
-        let { nextMs, telegraph } = c;
-        nextMs -= TICK_MS;
-        if (telegraph > 0) telegraph -= TICK_MS;
-        if (nextMs <= 500 && telegraph === 0) telegraph = 500;
-        if (nextMs <= 0) {
-          const def = PROJ_INFO[c.type];
-          projRef.current = [...projRef.current, {
-            id: pidRef.current++, type:c.type,
-            su:c.su, py:1.0,
-            vsu:-(def.speed), vpy:0,
-            r:def.r, mass:def.mass, color:def.color,
-            gravScale:def.gravScale, restitution:def.restitution,
-            aoe:def.aoe??0, explosionPower:def.explosionPower??0,
-            bounceCount:0,
-          }];
-          nextMs = c.fireMs + (Math.random()*400 - 200);
-          telegraph = 0;
-        }
-        return { ...c, nextMs, telegraph };
-      });
-      cannonRef.current = newCannons;
-
-      // 8. MOVE PROJECTILES + ground bounce + blast particles
-      let projs = projRef.current.map(proj => {
-        let { su:psu, py:ppy, vsu:pvsu, vpy:pvpy, bounceCount } = proj;
-        pvpy -= G * proj.gravScale * dt;
-        psu  += pvsu * dt;
-        ppy  += pvpy * dt;
-
-        if (ppy <= 0) {
-          ppy = 0;
-          if (proj.restitution > 0) {
-            // BOUNCY — high restitution, stays active as lingering hazard
-            pvpy = -pvpy * proj.restitution;
-            bounceCount++;
-          } else {
-            pvpy = 0;
-            if (proj.type === 'explosive') {
-              // BLAST PARTICLES — 14 radial particles fan out on ground impact
-              const batchId = Date.now() + Math.random();
-              const particles = Array.from({ length:14 }, (_,i) => {
-                const angle = (i/14) * Math.PI * 2;
-                const speed = 0.6 + Math.random() * 0.9;
-                return {
-                  id: 'bp_' + batchId + '_' + i,
-                  su: psu,
-                  dsu: Math.cos(angle) * speed,
-                  dpy: Math.abs(Math.sin(angle)) * speed * 0.7 + 0.15,
-                  r:   0.12 + Math.random() * 0.1,
-                  color: proj.color,
-                };
-              });
-              // setBlastParticles is a stable setter — safe to call from setInterval
-              setBlastParticles(prev => [...prev, ...particles]);
-              const ids = new Set(particles.map(p => p.id));
-              setTimeout(() => setBlastParticles(prev => prev.filter(p => !ids.has(p.id))), 650);
-              return null; // despawn explosive on ground contact
-            }
-          }
-        }
-
-        if (psu < -3) return null; // DE-SPAWNER VOLUME: left edge → destroy
-        return { ...proj, su:psu, py:ppy, vsu:pvsu, vpy:pvpy, bounceCount };
-      }).filter(Boolean);
-
-      // 9. COLLISION DETECTION — only when InputEnabled
-      if (inputRef.current && (p === 'climbing' || p === 'stun')) {
-        const BALL_R = 0.55;
-        for (let i = 0; i < projs.length; i++) {
-          const proj = projs[i];
-          const dsu  = su - proj.su;
-          const dpy  = py - proj.py;
-          const dist = Math.sqrt(dsu*dsu + dpy*dpy);
-          if (dist < BALL_R + proj.r) {
-            if (proj.type === 'standard') {
-              vsu -= proj.mass * 2.2;           // knockback: mass subtracted from vsu
-              triggerStun(vsu);
-              projs = projs.filter(p2 => p2.id !== proj.id); // despawn
-            } else if (proj.type === 'bouncy') {
-              // Reflect projectile — stays active as hazard
-              projs = projs.map(p2 => p2.id === proj.id
-                ? { ...p2, vsu:-p2.vsu*0.6, vpy:Math.abs(p2.vpy)*0.5+1.5 } : p2);
-              vsu -= proj.mass * 1.2;
-              triggerStun(vsu);
-            } else if (proj.type === 'explosive') {
-              // Radial impulse: Force = normalize(ball-explosion) × power
-              const len = dist || 0.01;
-              vsu += (dsu/len) * proj.explosionPower;
-              vpy += (dpy/len) * proj.explosionPower;
-              const eid = Date.now() + Math.random();
-              setExplosions(prev => [...prev, { id:eid, su:proj.su, py:proj.py, r:proj.aoe, color:proj.color }]);
-              setTimeout(() => setExplosions(prev => prev.filter(e=>e.id!==eid)), 700);
-              triggerStun(vsu);
-              projs = projs.filter(p2 => p2.id !== proj.id);
-            }
-            velRef.current = { su:vsu, py:vpy };
-            break;
-          }
-        }
-      }
-
-      projRef.current = projs;
-
-      // Commit to React state for SVG render
-      const distM = Math.round(Math.max(0, su));
-      if (distM > maxDistRef.current) { maxDistRef.current = distM; setMaxDistance(distM); }
-      setBallSU(su); setBallPY(py);
-      setRotation(Math.round(rotRef.current));
-      setAngularVelocity(Math.round(angVelRef.current));
-      setCamSU(camRef.current);
-      setCurrentDistance(distM);
-      setProjectiles([...projs]);
-      setCannons([...newCannons]);
-    }, TICK_MS);
-  }, [stopAll, triggerStun, endRun]);
-
-  // ── startAiming — wobble barrel then fire ────────────────────────────
-  const startAiming = useCallback((shooter = 'host') => {
-    const p = phaseRef.current;
-    if (p === 'climbing' || p === 'aiming' || p === 'stun') return;
-    shooterRef.current = shooter;
-    stopAll();
-    posRef.current = {su:0,py:0}; velRef.current = {su:0,py:0};
-    angVelRef.current=0; rotRef.current=0; camRef.current=0;
-    maxDistRef.current=0; inputRef.current=true; stunRef.current=0;
-    projRef.current=[]; cannonRef.current=buildCannons(); pidRef.current=0;
-
-    setPhase('aiming'); phaseRef.current='aiming';
-    setBallSU(0); setBallPY(0); setRotation(0); setCamSU(0);
-    setCurrentDistance(0); setMaxDistance(0);
-    setProjectiles([]); setExplosions([]); setBlastParticles([]);
-    setCannons(buildCannons()); setStunTimeLeft(0);
-
-    const queue = boostRef.current;
-    const totalForce = queue.reduce((s,b) => s + b.force, 0);
-    const lastBoost  = queue[queue.length-1] ?? null;
-    boostRef.current=[]; setBoostQueue([]);
-    if (lastBoost) { setActiveBoost(lastBoost); setTimeout(()=>setActiveBoost(null),2000); }
-
-    const launchVsu = 8.0 + totalForce;
-    const startMs   = Date.now();
-    wobbleRef.current = setInterval(() => {
-      const elapsed = Date.now() - startMs;
-      if (elapsed >= 1500) {
-        clearInterval(wobbleRef.current); wobbleRef.current=null;
-        velRef.current = { su:launchVsu, py:0.5 };
-        setRoundCount(n=>n+1);
-        setPhase('climbing'); phaseRef.current='climbing';
-        timerRef.current = updateTick(shooter);
+      // ── Charging phase: update chargeBar ──────────────────────────────
+      if (p === 'charging') {
+        let c = chargeRef.current;
+        if (holdingRef.current) c = Math.min(CHARGE_MAX, c + CHARGE_HOLD_RATE * dt);
+        else                    c = Math.max(0, c - CHARGE_DECAY_RATE * dt);
+        chargeRef.current = c;
+        setChargeLevel(c);
+        computeTrajectory(c, multRef.current.power);
+        // Auto-fire at 100%
+        if (c >= CHARGE_MAX) fireBallRef.current?.();
         return;
       }
-      const t = elapsed / 1500;
-      const sweep = 25 + Math.sin(t * Math.PI * 5) * 22 * (1 - t*0.3);
-      setBarrelAngle(Math.max(5, Math.min(65, Math.round(sweep))));
-    }, 30);
-  }, [stopAll, updateTick]);
 
-  // ── processGift ───────────────────────────────────────────────────────
+      if (p !== 'in_flight' && p !== 'rolling') return;
+
+      let { wx, wy }     = posRef.current;
+      let { wx:vx, wy:vy } = velRef.current;
+
+      if (p === 'in_flight') {
+        // ── Gravity arc (LaunchTrajectoryUI physics) ───────────────────
+        vy -= BALL_GRAVITY_BASE * dt;
+        wx += vx * dt;
+        wy += vy * dt;
+
+        // Ball rotation proportional to speed
+        rotRef.current = (rotRef.current + vx * 8 * dt) % 360;
+
+        if (wy <= 0) {
+          // Landed on platform
+          wy  = 0;
+          vy  = -Math.abs(vy) * BOUNCE_REST; // small bounce
+          if (Math.abs(vy) < 0.5) vy = 0;
+          setPhase('rolling'); phaseRef.current = 'rolling';
+        }
+      } else if (p === 'rolling') {
+        // ── Ground rolling physics ─────────────────────────────────────
+        if (wy > 0) {
+          vy -= BALL_GRAVITY_BASE * dt;       // still airborne from bounce
+          wy  = Math.max(0, wy + vy * dt);
+          if (wy <= 0) { wy = 0; vy = Math.abs(vy) < 0.5 ? 0 : -Math.abs(vy)*BOUNCE_REST; }
+        } else {
+          vy = 0;
+        }
+        vx *= FRICTION_GND;                   // rolling resistance
+        wx += vx * dt;
+        rotRef.current = (rotRef.current + vx * 10 * dt) % 360;
+
+        // Ball stopped
+        if (vx < 0.08 && wy <= 0) {
+          stopAll();
+          const zone  = getFloorZone(wx);
+          const score = Math.round(wx * zone.mult * 10);
+          setFinalScore(score);
+          bestRef.current = Math.max(bestRef.current, score);
+          setBestScore(bestRef.current);
+          setLeaderboard(prev => {
+            const next = [...prev, { user: shooter, score, dist: Math.round(wx), ts: Date.now() }]
+              .sort((a,b) => b.score - a.score);
+            const seen = new Set();
+            return next.filter(e => { if (seen.has(e.user)) return false; seen.add(e.user); return true; }).slice(0,10);
+          });
+          setPhase('landed'); phaseRef.current = 'landed';
+          const f = fuelsRef.current - 1;
+          fuelsRef.current = f;
+          setFuelsLeft(f);
+          return;
+        }
+
+        // ── Obstacle collision check ──────────────────────────────────
+        let newObs = obsRef.current.map(ob => {
+          if (!ob.active) return ob;
+          const dx = wx - ob.wx, dy = wy - ob.wy;
+          if (Math.sqrt(dx*dx + dy*dy) < ob.r + 0.9) {
+            const eid = hefRef.current++;
+            if (ob.type === 'bomb') {
+              vx += 12 + Math.random() * 6;      // bombPower forward blast
+              vy  = 6 + Math.random() * 4;        // upward kick
+              setExplosions(prev => [...prev, { id:eid, wx:ob.wx, wy:ob.wy, r:4, color:ob.color }]);
+              setTimeout(()=>setExplosions(prev=>prev.filter(e=>e.id!==eid)),700);
+            } else if (ob.type === 'bouncer') {
+              vy  = 10 + Math.abs(vx) * 0.4;     // bounceIntensity upward
+              vx *= 0.8;
+              setHitEffects(prev=>[...prev,{id:eid,wx:ob.wx,wy:ob.wy,label:'BOING!',color:ob.color}]);
+              setTimeout(()=>setHitEffects(prev=>prev.filter(e=>e.id!==eid)),600);
+            } else if (ob.type === 'power') {
+              vx += 8;                             // speed pickup
+              setHitEffects(prev=>[...prev,{id:eid,wx:ob.wx,wy:ob.wy,label:'+SPEED',color:ob.color}]);
+              setTimeout(()=>setHitEffects(prev=>prev.filter(e=>e.id!==eid)),600);
+            }
+            return { ...ob, active: false };
+          }
+          return ob;
+        });
+        obsRef.current = newObs;
+        setObstacles([...newObs]);
+        setFloorZone(getFloorZone(wx));
+      }
+
+      wx = Math.max(0, wx);
+      posRef.current = { wx, wy };
+      velRef.current = { wx:vx, wy:vy };
+
+      // Camera lerp
+      const targetCam = Math.max(0, wx - CAM_LEAD_WU);
+      camRef.current += (targetCam - camRef.current) * CAM_LERP;
+
+      setBallWx(wx); setBallWy(wy);
+      setBallRot(Math.round(rotRef.current));
+      setCamWx(camRef.current);
+      setCurrentDist(Math.round(wx));
+    }, TICK_MS);
+  }, [stopAll, computeTrajectory]);
+
+  // ── processGift — TikTok gift handler ────────────────────────────────
   const processGift = useCallback((user, coins) => {
-    const tier  = getBoostTier(coins);
+    const tier  = getGiftTier(coins);
     const boost = { ...tier, user, coins };
     const p     = phaseRef.current;
-    if (p === 'climbing' && inputRef.current) {
-      velRef.current.su += boost.force;
+
+    if (p === 'charging') {
+      // Fill chargeBar — this IS the mechanic (gifts = charge)
+      chargeRef.current = Math.min(CHARGE_MAX, chargeRef.current + tier.chargeAdd);
+      setChargeLevel(chargeRef.current);
+      computeTrajectory(chargeRef.current, multRef.current.power);
       setActiveBoost(boost);
-      setTimeout(()=>setActiveBoost(null), 1500);
-    } else if (p === 'stun') {
-      velRef.current.su += boost.force * 0.35;
-    } else {
-      boostRef.current=[...boostRef.current, boost];
+      setTimeout(()=>setActiveBoost(null), 1200);
+      if (chargeRef.current >= CHARGE_MAX) fireBallRef.current?.();
+
+    } else if (p === 'in_flight' || p === 'rolling') {
+      // Mid-air / rolling boost
+      velRef.current.wx += tier.force;
+      setActiveBoost(boost);
+      setTimeout(()=>setActiveBoost(null), 1200);
+
+    } else if (p === 'idle' || p === 'landed') {
+      // Queue boost for next launch, auto-start
+      boostRef.current = [...boostRef.current, boost];
       setBoostQueue([...boostRef.current]);
-      if (p==='idle'||p==='landed') setTimeout(()=>startAiming(user), 200);
+      if (p === 'idle') setTimeout(()=>startRound(user), 300);
+      else if (fuelsRef.current > 0) setTimeout(()=>refire(user), 300);
+
+    } else if (p === 'chest_pick') {
+      boostRef.current = [...boostRef.current, boost];
+      setBoostQueue([...boostRef.current]);
     }
-  }, [startAiming]);
+  }, [computeTrajectory]);
+
+  // ── Refire (launcherFuels remaining) ─────────────────────────────────
+  const refire = useCallback((shooter = 'host') => {
+    if (phaseRef.current !== 'landed') return;
+    if (fuelsRef.current <= 0) return;
+    shooterRef.current = shooter;
+    chargeRef.current  = 0;
+    setChargeLevel(0);
+    posRef.current     = { wx:0, wy:0 };
+    velRef.current     = { wx:0, wy:0 };
+    rotRef.current     = 0;
+    camRef.current     = 0;
+    setFinalScore(0); setCurrentDist(0);
+    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
+    setExplosions([]); setHitEffects([]);
+    // Rebuild obstacles for fresh shot
+    const m = multRef.current;
+    const obs = buildObstacles(m.bomb, m.bouncer);
+    obsRef.current = obs; setObstacles(obs);
+    setFloorZone(FLOOR_ZONES[0]);
+    // Apply queued boosts to charge
+    const queue = boostRef.current;
+    if (queue.length) {
+      const fill = Math.min(CHARGE_MAX, queue.reduce((s,b)=>s+b.chargeAdd,0));
+      chargeRef.current = fill; setChargeLevel(fill);
+      boostRef.current = []; setBoostQueue([]);
+    }
+    computeTrajectory(chargeRef.current, m.power);
+    setPhase('charging'); phaseRef.current = 'charging';
+    timerRef.current = updateTick(shooter);
+  }, [computeTrajectory, updateTick]);
+
+  // ── Start a fresh round (chest_pick) ──────────────────────────────────
+  const startRound = useCallback((shooter = 'host') => {
+    const p = phaseRef.current;
+    if (p === 'charging' || p === 'in_flight' || p === 'rolling' || p === 'chest_pick') return;
+    stopAll();
+    shooterRef.current = shooter;
+    chargeRef.current  = 0;
+    holdingRef.current = false;
+    posRef.current     = { wx:0, wy:0 };
+    velRef.current     = { wx:0, wy:0 };
+    rotRef.current     = 0;
+    camRef.current     = 0;
+    fuelsRef.current   = 1;
+    multRef.current    = { power:1, bomb:2, bouncer:2 };
+    obsRef.current     = [];
+    setChestsPicked([]); setMultipliers({ power:1, bomb:2, bouncer:2 });
+    setChargeLevel(0); setFuelsLeft(1);
+    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
+    setCurrentDist(0); setFinalScore(0);
+    setObstacles([]); setExplosions([]); setHitEffects([]);
+    setTrajectory([]); setFloorZone(FLOOR_ZONES[0]);
+    setPhase('chest_pick'); phaseRef.current = 'chest_pick';
+  }, [stopAll]);
 
   const manualFire = useCallback(() => {
     const p = phaseRef.current;
-    if (p==='idle'||p==='landed') startAiming('host');
-  }, [startAiming]);
+    if (p === 'idle' || p === 'landed') startRound('host');
+    else if (p === 'charging') fireBallRef.current?.();
+  }, [startRound]);
 
   const reset = useCallback(() => {
     stopAll();
-    posRef.current={su:0,py:0}; velRef.current={su:0,py:0};
-    angVelRef.current=0; rotRef.current=0; camRef.current=0;
-    inputRef.current=true; stunRef.current=0; maxDistRef.current=0;
-    projRef.current=[]; cannonRef.current=buildCannons(); pidRef.current=0;
+    chargeRef.current=0; holdingRef.current=false;
+    posRef.current={wx:0,wy:0}; velRef.current={wx:0,wy:0};
+    rotRef.current=0; camRef.current=0; fuelsRef.current=1;
+    multRef.current={power:1,bomb:2,bouncer:2};
     boostRef.current=[];
     setPhase('idle'); phaseRef.current='idle';
-    setBallSU(0); setBallPY(0); setRotation(0); setAngularVelocity(0);
-    setCamSU(0); setBarrelAngle(35); setCurrentDistance(0); setMaxDistance(0);
+    setChestsPicked([]); setMultipliers({power:1,bomb:2,bouncer:2});
+    setChargeLevel(0); setFuelsLeft(1);
+    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
+    setCurrentDist(0); setFinalScore(0);
+    setObstacles([]); setExplosions([]); setHitEffects([]);
+    setTrajectory([]); setFloorZone(FLOOR_ZONES[0]);
     setBoostQueue([]); setActiveBoost(null);
-    setExplosions([]); setBlastParticles([]); setStunTimeLeft(0);
-    setProjectiles([]); setCannons(buildCannons());
   }, [stopAll]);
 
-  useEffect(() => () => stopAll(), [stopAll]);
+  useEffect(()=>()=>stopAll(),[stopAll]);
 
   return {
-    phase, barrelAngle, ballSU, ballPY, rotation, angularVelocity, camSU,
-    currentDistance, maxDistance, stunTimeLeft,
-    activeBoost, boostQueue, projectiles, explosions, blastParticles, cannons,
-    leaderboard, roundCount, safeZones: SAFE_ZONES_SU,
-    manualFire, reset, processGift,
+    // State
+    phase, chestsPicked, multipliers, chargeLevel, fuelsLeft,
+    ballWx, ballWy, ballRot, camWx, currentDist, finalScore, bestScore,
+    obstacles, explosions, hitEffects, activeBoost, boostQueue,
+    leaderboard, roundCount, trajectory, floorZone,
+    // Actions
+    startRound, pickChest, startHold, endHold: endHoldFinal,
+    manualFire, reset, processGift, refire,
   };
 }
