@@ -4,7 +4,7 @@ import React from 'react';
 const MEDAL = ['🥇','🥈','🥉'];
 
 export default function CannonLeaderboard({ engine }) {
-  const { leaderboard, roundCount } = engine;
+  const { leaderboard, roundCount, currentDistance, maxDistance } = engine;
 
   return (
     <div className="flex flex-col gap-4 p-4 overflow-y-auto">
@@ -50,3 +50,4 @@ export default function CannonLeaderboard({ engine }) {
     </div>
   );
 }
+
