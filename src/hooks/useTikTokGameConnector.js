@@ -4,16 +4,26 @@
  * Connects via WebSocket to the StreamVibe Bridge (Railway):
  *   wss://streamvibe-bridge-production.up.railway.app
  *
- * Protocol (same bridge, same server.js):
+ * Protocol:
  *   → { type:"connect_tiktok", username }
+ *   ← { type:"bridge_connected" }
  *   ← { type:"tiktok_connected" }   → status = 'connected'
- *   ← { type:"not_live" }           → bridge auto-retries, we show 'connecting'
- *   ← { type:"gift", username, giftName, coins, repeatCount, repeatEnd }
- *   ← { type:"comment", username, message }
+ *   ← { type:"not_live" }           → bridge auto-retries every 30s, status = 'connecting'
+ *   ← { type:"error", message }     → internal bridge error (suppressed unless fatal)
+ *   ← { type:"gift", ... }
+ *   ← { type:"comment", ... }
  */
 import { useState, useRef, useCallback } from 'react';
 
 const BRIDGE_URL = 'wss://streamvibe-bridge-production.up.railway.app';
+
+// Coerce anything to a display string safely
+function toStr(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (val.message && typeof val.message === 'string') return val.message;
+  try { return JSON.stringify(val); } catch (_) { return String(val); }
+}
 
 export function useTikTokGameConnector({ onGift, onChat, onError }) {
   const [status,   setStatus]   = useState('disconnected');
@@ -61,7 +71,7 @@ export function useTikTokGameConnector({ onGift, onChat, onError }) {
       ws.onerror = () => {
         if (!alive.current) return;
         setStatus('error');
-        onError?.('Bridge connection error — check your internet connection.');
+        onError?.('Could not reach the StreamVibe Bridge. Check your connection.');
       };
 
       ws.onmessage = (e) => {
@@ -70,26 +80,42 @@ export function useTikTokGameConnector({ onGift, onChat, onError }) {
           const msg = JSON.parse(e.data);
           switch (msg.type) {
             case 'bridge_connected':
-              break; // waiting for TikTok session
+              // Connected to bridge, waiting for TikTok
+              break;
+
             case 'tiktok_connected':
               setStatus('connected');
               setIsDemo(false);
               break;
+
             case 'not_live':
-              // Not live yet — bridge retries every 30s automatically
+              // User isn't live yet — bridge auto-retries every 30s
+              // Stay in 'connecting' state, no error shown
               setStatus('connecting');
               break;
+
             case 'tiktok_disconnected':
+              // Stream ended or user requested — go back to connecting (bridge retries)
               if (msg.reason !== 'user_requested') setStatus('connecting');
               break;
+
+            case 'error': {
+              // Internal bridge/TikTok error. These are often noisy connector errors
+              // (e.g. rate limits, transient failures) not meaningful to the user.
+              // Only surface if we're in a stable connected state, otherwise swallow.
+              const raw = toStr(msg.message);
+              console.warn('Bridge error event:', raw);
+              // Don't call onError — bridge handles its own retry logic.
+              // The user sees the yellow "waiting for live" indicator instead.
+              break;
+            }
+
             case 'gift':
               handleGift(msg);
               break;
+
             case 'comment':
               handleChat(msg);
-              break;
-            case 'error':
-              onError?.(msg.message || 'TikTok error');
               break;
           }
         } catch (_) {}
@@ -104,9 +130,11 @@ export function useTikTokGameConnector({ onGift, onChat, onError }) {
 
   function handleGift(data) {
     try {
+      // Bridge sends: { username, giftName, coins, repeatCount, repeatEnd }
+      // Only fire on completed streaks (repeatEnd=true) or non-streakable gifts
       const repeatEnd = data.repeatEnd ?? true;
       const isStreak  = data.coins > 0 && !repeatEnd;
-      if (isStreak) return; // mid-streak, wait for end
+      if (isStreak) return;
 
       const coins = (data.coins ?? 0) * Math.max(1, data.repeatCount ?? 1);
       const user  = data.username ?? 'unknown';
@@ -122,12 +150,10 @@ export function useTikTokGameConnector({ onGift, onChat, onError }) {
     } catch (_) {}
   }
 
-  /** Inject a fake chat message (dev/demo) */
   const injectChat = useCallback((user = 'viewer1', text = '!word test') => {
     onChat?.(user, text);
   }, [onChat]);
 
-  /** Inject a fake gift (dev/demo) */
   const injectGift = useCallback((user = 'viewer1', coins = 100) => {
     onGift?.(user, coins);
   }, [onGift]);
