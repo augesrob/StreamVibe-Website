@@ -1,7 +1,7 @@
 /**
  * LiveWordsOverlay — Game-show style portrait overlay
  * Route: /games-overlay/live-words?token=USER_OVERLAY_TOKEN
- * No header/footer — pure transparent canvas for TikTok Live Studio
+ * Receives chatMode + chatCommand from broadcast and shows correct hint.
  */
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -32,6 +32,22 @@ function WordRow({ word, user, score, isNew }) {
       <span style={{ fontFamily:'"Arial Black",sans-serif', fontWeight:900, fontSize:22, color:'#fff', textTransform:'uppercase', letterSpacing:'0.1em', minWidth:120 }}>{word}</span>
       <span style={{ fontSize:14, color:'rgba(255,255,255,0.5)', flex:1 }}>@{user}</span>
       <span style={{ fontSize:20, fontWeight:900, color:'#ffd700', fontFamily:'monospace' }}>+{score}</span>
+    </div>
+  );
+}
+
+// Command hint — updates live when chatMode/chatCommand changes
+function CommandHint({ chatMode, chatCommand }) {
+  if (chatMode === 'any') {
+    return (
+      <div style={{ background:'rgba(150,0,255,0.25)', borderRadius:12, border:'1px solid rgba(180,100,255,0.35)', padding:'8px 24px', margin:'4px 0 16px', fontSize:16, color:'rgba(255,255,255,0.85)', fontFamily:'sans-serif', fontWeight:400, position:'relative', zIndex:1, textAlign:'center' }}>
+        💬 Type <span style={{ color:'#cc88ff', fontWeight:900 }}>any word</span> in chat to score!
+      </div>
+    );
+  }
+  return (
+    <div style={{ background:'rgba(0,0,0,0.35)', borderRadius:12, border:'1px solid rgba(255,255,255,0.1)', padding:'8px 24px', margin:'4px 0 16px', fontSize:16, color:'rgba(255,255,255,0.7)', fontFamily:'sans-serif', fontWeight:400, position:'relative', zIndex:1, textAlign:'center' }}>
+      Type <span style={{ color:'#ffd700', fontWeight:900, fontFamily:'monospace' }}>{chatCommand || '!word'}</span> + your answer in chat
     </div>
   );
 }
@@ -75,7 +91,9 @@ export default function LiveWordsOverlay() {
     </div>
   );
 
-  const theme = THEMES[state?.themeId ?? 'purple'] ?? THEMES.purple;
+  const theme      = THEMES[state?.themeId ?? 'purple'] ?? THEMES.purple;
+  const chatMode   = state?.chatMode   ?? 'command';
+  const chatCommand= state?.chatCommand ?? '!word';
 
   if (!state || state.phase === 'idle') return (
     <div style={{ position:'fixed', inset:0, background:theme.bg, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:24, fontFamily:'"Arial Black",sans-serif' }}>
@@ -137,10 +155,8 @@ export default function LiveWordsOverlay() {
         {letters.map((l,i) => <LetterTile key={i} letter={l} size={TILE_SIZE} />)}
       </div>
 
-      {/* Command hint */}
-      <div style={{ background:'rgba(0,0,0,0.35)', borderRadius:12, border:'1px solid rgba(255,255,255,0.1)', padding:'8px 24px', margin:'4px 0 16px', fontSize:16, color:'rgba(255,255,255,0.7)', fontFamily:'sans-serif', fontWeight:400, position:'relative', zIndex:1, textAlign:'center' }}>
-        Type <span style={{ color:'#ffd700', fontWeight:900, fontFamily:'monospace' }}>!word</span> + your answer in chat
-      </div>
+      {/* Command hint — live-updates when chatMode changes */}
+      <CommandHint chatMode={chatMode} chatCommand={chatCommand} />
 
       {/* Progress bar */}
       <div style={{ width:'86%', height:12, background:'rgba(0,0,0,0.4)', borderRadius:6, overflow:'hidden', margin:'4px 0 20px', border:'1px solid rgba(255,255,255,0.1)', position:'relative', zIndex:1 }}>

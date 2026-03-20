@@ -43,17 +43,26 @@ export default function LiveWordsTool() {
     return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
   }, [user]);
 
-  // Broadcast state to overlay via Realtime
+  // Broadcast state to overlay — includes chatMode + chatCommand so overlay stays in sync
   useEffect(() => {
     if (!channelRef.current || !user) return;
     const payload = {
-      phase: engine.phase, remaining: engine.remaining, letters: engine.letters,
-      foundWords: engine.foundWords.slice(0, 8), leaderboard: engine.leaderboard.slice(0, 5),
-      roundNum: engine.roundNum, totalDuration: engine.roundDuration,
-      themeId: engine.overlayTheme ?? 'purple',
+      phase:       engine.phase,
+      remaining:   engine.remaining,
+      letters:     engine.letters,
+      foundWords:  engine.foundWords.slice(0, 8),
+      leaderboard: engine.leaderboard.slice(0, 5),
+      roundNum:    engine.roundNum,
+      totalDuration: engine.roundDuration,
+      themeId:     engine.overlayTheme ?? 'purple',
+      chatMode:    engine.chatMode,
+      chatCommand: engine.chatCommand,
     };
     channelRef.current.send({ type: 'broadcast', event: 'state', payload });
-  }, [engine.phase, engine.remaining, engine.foundWords, engine.leaderboard, engine.overlayTheme]);
+  }, [
+    engine.phase, engine.remaining, engine.foundWords, engine.leaderboard,
+    engine.overlayTheme, engine.chatMode, engine.chatCommand,
+  ]);
 
   const tiktok = useTikTokGameConnector({
     onChat:  (u, text) => engine.processChatMessage(u, text),
@@ -70,12 +79,19 @@ export default function LiveWordsTool() {
       <div className="flex flex-col h-[calc(100vh-64px)] mt-16 bg-[#0a0b14] text-white overflow-hidden">
         <Helmet><title>Live Words — StreamVibe Games</title></Helmet>
 
-        {/* Simple header — no overlay buttons here, they live in WordCenter */}
         <div className="flex items-center gap-3 px-5 py-3 border-b border-[#1e2240] bg-[#0d0e1a] flex-shrink-0">
           <span className="text-2xl">🔤</span>
           <div>
             <h1 className="font-black text-lg text-white leading-tight">StreamVibe Live Words</h1>
             <p className="text-gray-500 text-xs">Round #{engine.roundNum || '—'} · {engine.possibleWords.length} possible words</p>
+          </div>
+          {/* Live chat mode badge in header */}
+          <div className={`ml-auto px-3 py-1 rounded-full text-xs font-black border ${
+            engine.chatMode === 'any'
+              ? 'bg-purple-900/40 border-purple-700 text-purple-300'
+              : 'bg-cyan-900/40 border-cyan-700 text-cyan-300'
+          }`}>
+            {engine.chatMode === 'any' ? '💬 Any Chat' : `⌨️ ${engine.chatCommand}`}
           </div>
         </div>
 

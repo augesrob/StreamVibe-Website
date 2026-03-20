@@ -1,6 +1,9 @@
 /**
  * useLiveWordsEngine
  * Core game logic for StreamVibe Live Words.
+ *
+ * chatMode: 'command' — viewers must type "!word <answer>"
+ *           'any'     — any chat message is treated as a word guess
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -12,6 +15,7 @@ const DEFAULT_ROUND_SECS = 60;
 export function useLiveWordsEngine() {
   const [roundDuration, setRoundDuration] = useState(DEFAULT_ROUND_SECS);
   const [chatCommand,   setChatCommand]   = useState('!word');
+  const [chatMode,      setChatMode]      = useState('command'); // 'command' | 'any'
   const [minWordLength, setMinWordLength] = useState(3);
   const [allowDupes,    setAllowDupes]    = useState(false);
   const [overlayTheme,  setOverlayTheme]  = useState('purple');
@@ -32,10 +36,19 @@ export function useLiveWordsEngine() {
   const lettersRef  = useRef([]);
   const foundSetRef = useRef(new Set());
   const timerRef    = useRef(null);
+  // Keep mutable refs for settings used inside processChatMessage closure
+  const chatModeRef    = useRef('command');
+  const chatCommandRef = useRef('!word');
+  const minWordRef     = useRef(3);
+  const allowDupesRef  = useRef(false);
 
-  useEffect(() => { phaseRef.current   = phase;     }, [phase]);
-  useEffect(() => { remainRef.current  = remaining; }, [remaining]);
-  useEffect(() => { lettersRef.current = letters;   }, [letters]);
+  useEffect(() => { phaseRef.current      = phase;       }, [phase]);
+  useEffect(() => { remainRef.current     = remaining;   }, [remaining]);
+  useEffect(() => { lettersRef.current    = letters;     }, [letters]);
+  useEffect(() => { chatModeRef.current   = chatMode;    }, [chatMode]);
+  useEffect(() => { chatCommandRef.current= chatCommand; }, [chatCommand]);
+  useEffect(() => { minWordRef.current    = minWordLength;}, [minWordLength]);
+  useEffect(() => { allowDupesRef.current = allowDupes;  }, [allowDupes]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -86,16 +99,46 @@ export function useLiveWordsEngine() {
 
   const processChatMessage = useCallback((user, text) => {
     if (phaseRef.current !== 'running') return { accepted: false, reason: 'no_game' };
-    const parts = text.trim().split(/\s+/);
-    const cmd   = parts[0]?.toLowerCase();
-    if (cmd !== chatCommand.toLowerCase()) return { accepted: false };
-    const raw  = parts[1]?.toLowerCase() ?? '';
-    const word = raw.replace(/[^a-z]/g, '');
+
+    const mode = chatModeRef.current;
+    let word = '';
+
+    if (mode === 'command') {
+      // Must start with the command prefix e.g. "!word bend"
+      const parts = text.trim().split(/\s+/);
+      const cmd   = parts[0]?.toLowerCase();
+      if (cmd !== chatCommandRef.current.toLowerCase()) return { accepted: false };
+      const raw = parts[1]?.toLowerCase() ?? '';
+      word = raw.replace(/[^a-z]/g, '');
+    } else {
+      // Any chat — treat the whole message as the word attempt
+      // Ignore messages that look like commands (start with !)
+      const trimmed = text.trim();
+      if (trimmed.startsWith('!')) return { accepted: false };
+      // Take first token only (ignore trailing chat noise)
+      word = trimmed.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+    }
+
     if (!word) return { accepted: false, reason: 'empty' };
-    if (word.length < minWordLength) { addRejected(user, raw, `Too short (min ${minWordLength})`); return { accepted: false, reason: 'too_short' }; }
-    if (!isValidWord(word))          { addRejected(user, raw, 'Not a real word');    return { accepted: false, reason: 'not_word' };   }
-    if (!canFormWord(word, lettersRef.current)) { addRejected(user, raw, 'Letters not available'); return { accepted: false, reason: 'bad_letters' }; }
-    if (!allowDupes && foundSetRef.current.has(word)) { addRejected(user, raw, 'Already found'); return { accepted: false, reason: 'dupe' }; }
+
+    const minLen = minWordRef.current;
+    if (word.length < minLen) {
+      addRejected(user, word, `Too short (min ${minLen})`);
+      return { accepted: false, reason: 'too_short' };
+    }
+    if (!isValidWord(word)) {
+      addRejected(user, word, 'Not a real word');
+      return { accepted: false, reason: 'not_word' };
+    }
+    if (!canFormWord(word, lettersRef.current)) {
+      addRejected(user, word, 'Letters not available');
+      return { accepted: false, reason: 'bad_letters' };
+    }
+    if (!allowDupesRef.current && foundSetRef.current.has(word)) {
+      addRejected(user, word, 'Already found');
+      return { accepted: false, reason: 'dupe' };
+    }
+
     const pts = scoreWord(word);
     foundSetRef.current.add(word);
     const entry = { word, user, score: pts, ts: Date.now() };
@@ -105,7 +148,7 @@ export function useLiveWordsEngine() {
       return { ...prev, [user]: { score: existing.score + pts, words: [word, ...existing.words].slice(0, 50) } };
     });
     return { accepted: true, word, score: pts };
-  }, [chatCommand, minWordLength, allowDupes]);
+  }, []); // uses refs only — no stale closures
 
   function addRejected(user, text, reason) {
     setRejectedFeed(prev => [{ user, text, reason, ts: Date.now() }, ...prev].slice(0, 30));
@@ -121,18 +164,18 @@ export function useLiveWordsEngine() {
       localStorage.setItem('sv_livewords_overlay', JSON.stringify({
         phase, remaining, letters, foundWords: foundWords.slice(0, 8),
         leaderboard: leaderboard.slice(0, 5), roundNum, themeId: overlayTheme,
-        totalDuration: roundDuration,
+        totalDuration: roundDuration, chatMode, chatCommand,
       }));
     } catch (_) {}
-  }, [phase, remaining, letters, foundWords, leaderboard, roundNum, overlayTheme]);
+  }, [phase, remaining, letters, foundWords, leaderboard, roundNum, overlayTheme, chatMode, chatCommand]);
 
   useEffect(() => () => stopTimer(), [stopTimer]);
 
   return {
     phase, remaining, letters, possibleWords, foundWords, rejectedFeed,
     scores, leaderboard, roundNum, sessionHistory,
-    roundDuration, chatCommand, minWordLength, allowDupes, maxRounds, overlayTheme,
-    setRoundDuration, setChatCommand, setMinWordLength, setAllowDupes, setMaxRounds, setOverlayTheme,
+    roundDuration, chatCommand, chatMode, minWordLength, allowDupes, maxRounds, overlayTheme,
+    setRoundDuration, setChatCommand, setChatMode, setMinWordLength, setAllowDupes, setMaxRounds, setOverlayTheme,
     startRound, finishRound, nextRound, fullReset, processChatMessage,
   };
 }

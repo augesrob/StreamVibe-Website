@@ -1,5 +1,5 @@
 /**
- * WordSettings — command, timer, min-length, dupe settings, overlay theme
+ * WordSettings — command, timer, min-length, dupe settings, overlay theme, chat mode toggle
  */
 import React from 'react';
 import { Settings } from 'lucide-react';
@@ -17,10 +17,13 @@ export default function WordSettings({ engine }) {
   const {
     roundDuration, setRoundDuration,
     chatCommand,   setChatCommand,
+    chatMode,      setChatMode,
     minWordLength, setMinWordLength,
     allowDupes,    setAllowDupes,
     overlayTheme,  setOverlayTheme,
   } = engine;
+
+  const isCommand = chatMode === 'command';
 
   return (
     <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-4 space-y-4">
@@ -29,15 +32,47 @@ export default function WordSettings({ engine }) {
         <span className="text-xs font-bold tracking-widest text-gray-400 uppercase">Game Settings</span>
       </div>
 
-      {/* Chat Command */}
+      {/* ── Chat Mode Toggle ───────────────────────────────────────────── */}
       <div>
-        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Chat Command</label>
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-2">
+          Chat Mode
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setChatMode('command')}
+            className={`py-2 rounded-lg text-xs font-black tracking-wider border transition-all ${
+              isCommand
+                ? 'bg-cyan-500 border-cyan-400 text-black'
+                : 'bg-[#0a0b14] border-[#1e2240] text-gray-500 hover:border-gray-600'
+            }`}>
+            ⌨️ Command
+          </button>
+          <button
+            onClick={() => setChatMode('any')}
+            className={`py-2 rounded-lg text-xs font-black tracking-wider border transition-all ${
+              !isCommand
+                ? 'bg-purple-500 border-purple-400 text-white'
+                : 'bg-[#0a0b14] border-[#1e2240] text-gray-500 hover:border-gray-600'
+            }`}>
+            💬 Any Chat
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-600 mt-1.5">
+          {isCommand
+            ? <>Viewers type: <span className="text-cyan-500 font-mono">{chatCommand} bend</span></>
+            : 'Any chat message is treated as a word guess'
+          }
+        </p>
+      </div>
+
+      {/* ── Command prefix (only relevant in command mode) ─────────────── */}
+      <div className={isCommand ? '' : 'opacity-40 pointer-events-none'}>
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+          Command Prefix
+        </label>
         <input value={chatCommand} onChange={e => setChatCommand(e.target.value || '!word')}
           className="w-full bg-[#0a0b14] border border-[#1e2240] rounded-lg px-3 py-2 text-white font-mono font-bold text-sm focus:border-cyan-500 outline-none"
           placeholder="!word" />
-        <p className="text-[10px] text-gray-600 mt-1">
-          Viewers type: <span className="text-cyan-600 font-mono">{chatCommand} bend</span>
-        </p>
       </div>
 
       {/* Round Duration */}
