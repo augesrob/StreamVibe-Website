@@ -1,5 +1,6 @@
 /**
- * WordSettings — command, timer, min-length, dupe settings, overlay theme, chat mode toggle
+ * WordSettings — command, timer, min-length, dupe settings, overlay theme,
+ *               chat mode toggle, auto-next round toggle
  */
 import React from 'react';
 import { Settings } from 'lucide-react';
@@ -13,14 +14,27 @@ const OVERLAY_THEMES = [
   { id:'gold',    label:'Gold',    e:'✨', bg:'from-yellow-700 to-amber-900' },
 ];
 
+function Toggle({ value, onChange }) {
+  return (
+    <button onClick={() => onChange(!value)}
+      className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 ${value ? 'bg-cyan-500' : 'bg-gray-700'}`}>
+      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${value ? 'left-6' : 'left-0.5'}`} />
+    </button>
+  );
+}
+
 export default function WordSettings({ engine }) {
   const {
-    roundDuration, setRoundDuration,
-    chatCommand,   setChatCommand,
-    chatMode,      setChatMode,
-    minWordLength, setMinWordLength,
-    allowDupes,    setAllowDupes,
-    overlayTheme,  setOverlayTheme,
+    roundDuration,  setRoundDuration,
+    chatCommand,    setChatCommand,
+    chatMode,       setChatMode,
+    minWordLength,  setMinWordLength,
+    allowDupes,     setAllowDupes,
+    overlayTheme,   setOverlayTheme,
+    autoNextRound,  setAutoNextRound,
+    autoNextDelay,  setAutoNextDelay,
+    autoNextCountdown,
+    phase,
   } = engine;
 
   const isCommand = chatMode === 'command';
@@ -32,7 +46,40 @@ export default function WordSettings({ engine }) {
         <span className="text-xs font-bold tracking-widest text-gray-400 uppercase">Game Settings</span>
       </div>
 
-      {/* ── Chat Mode Toggle ───────────────────────────────────────────── */}
+      {/* ── Auto Next Round ──────────────────────────────────────────────── */}
+      <div className={`rounded-xl border p-3 transition-all ${
+        autoNextRound ? 'bg-green-950/30 border-green-800/50' : 'bg-[#0a0b14] border-[#1e2240]'
+      }`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">Auto Next Round</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">
+              Automatically starts the next round after the reveal
+            </p>
+          </div>
+          <Toggle value={autoNextRound} onChange={setAutoNextRound} />
+        </div>
+
+        {/* Delay slider — only shown when enabled */}
+        {autoNextRound && (
+          <div className="mt-3 pt-3 border-t border-green-900/40">
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+              Reveal time: <span className="text-green-400">{autoNextDelay}s</span>
+              {phase === 'finished' && autoNextCountdown > 0 && (
+                <span className="text-yellow-400 ml-2 animate-pulse">→ Next round in {autoNextCountdown}s</span>
+              )}
+            </label>
+            <input type="range" min={5} max={30} step={5} value={autoNextDelay}
+              onChange={e => setAutoNextDelay(Number(e.target.value))}
+              className="w-full accent-green-500" />
+            <div className="flex justify-between text-[10px] text-gray-700 mt-0.5">
+              <span>5s</span><span>30s</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Chat Mode Toggle ─────────────────────────────────────────────── */}
       <div>
         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-2">
           Chat Mode
@@ -65,7 +112,7 @@ export default function WordSettings({ engine }) {
         </p>
       </div>
 
-      {/* ── Command prefix (only relevant in command mode) ─────────────── */}
+      {/* ── Command prefix ───────────────────────────────────────────────── */}
       <div className={isCommand ? '' : 'opacity-40 pointer-events-none'}>
         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
           Command Prefix
@@ -101,10 +148,7 @@ export default function WordSettings({ engine }) {
           <p className="text-sm font-semibold text-white">Allow Duplicate Words</p>
           <p className="text-[10px] text-gray-600">Multiple viewers can score the same word</p>
         </div>
-        <button onClick={() => setAllowDupes(v => !v)}
-          className={`w-12 h-6 rounded-full transition-all relative ${allowDupes ? 'bg-cyan-500' : 'bg-gray-700'}`}>
-          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${allowDupes ? 'left-6' : 'left-0.5'}`} />
-        </button>
+        <Toggle value={allowDupes} onChange={setAllowDupes} />
       </div>
 
       {/* Overlay Theme */}

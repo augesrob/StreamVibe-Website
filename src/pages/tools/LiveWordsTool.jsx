@@ -43,25 +43,37 @@ export default function LiveWordsTool() {
     return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
   }, [user]);
 
-  // Broadcast state to overlay — includes chatMode + chatCommand so overlay stays in sync
+  // Broadcast ALL state to overlay.
+  // IMPORTANT: letters + possibleWords must be in dep array so new rounds
+  // immediately clear the overlay — previously these were missing, causing
+  // stale words to persist until the next tick update.
   useEffect(() => {
     if (!channelRef.current || !user) return;
-    const payload = {
-      phase:       engine.phase,
-      remaining:   engine.remaining,
-      letters:     engine.letters,
-      foundWords:  engine.foundWords.slice(0, 8),
-      leaderboard: engine.leaderboard.slice(0, 5),
-      roundNum:    engine.roundNum,
-      totalDuration: engine.roundDuration,
-      themeId:     engine.overlayTheme ?? 'purple',
-      chatMode:    engine.chatMode,
-      chatCommand: engine.chatCommand,
-    };
-    channelRef.current.send({ type: 'broadcast', event: 'state', payload });
+    channelRef.current.send({
+      type: 'broadcast', event: 'state', payload: {
+        phase:         engine.phase,
+        remaining:     engine.remaining,
+        letters:       engine.letters,        // ← was missing from deps
+        possibleWords: engine.possibleWords,  // ← was missing entirely
+        foundWords:    engine.foundWords.slice(0, 8),
+        leaderboard:   engine.leaderboard.slice(0, 5),
+        roundNum:      engine.roundNum,
+        totalDuration: engine.roundDuration,
+        themeId:       engine.overlayTheme ?? 'purple',
+        chatMode:      engine.chatMode,
+        chatCommand:   engine.chatCommand,
+      },
+    });
   }, [
-    engine.phase, engine.remaining, engine.foundWords, engine.leaderboard,
-    engine.overlayTheme, engine.chatMode, engine.chatCommand,
+    engine.phase,
+    engine.remaining,
+    engine.letters,        // ← added
+    engine.possibleWords,  // ← added
+    engine.foundWords,
+    engine.leaderboard,
+    engine.overlayTheme,
+    engine.chatMode,
+    engine.chatCommand,
   ]);
 
   const tiktok = useTikTokGameConnector({
@@ -83,9 +95,13 @@ export default function LiveWordsTool() {
           <span className="text-2xl">🔤</span>
           <div>
             <h1 className="font-black text-lg text-white leading-tight">StreamVibe Live Words</h1>
-            <p className="text-gray-500 text-xs">Round #{engine.roundNum || '—'} · {engine.possibleWords.length} possible words</p>
+            <p className="text-gray-500 text-xs">
+              Round #{engine.roundNum || '—'} · {engine.possibleWords.length} possible words
+              {engine.autoNextRound && engine.phase === 'finished' && engine.autoNextCountdown > 0 && (
+                <span className="text-yellow-500 ml-2">· Next round in {engine.autoNextCountdown}s…</span>
+              )}
+            </p>
           </div>
-          {/* Live chat mode badge in header */}
           <div className={`ml-auto px-3 py-1 rounded-full text-xs font-black border ${
             engine.chatMode === 'any'
               ? 'bg-purple-900/40 border-purple-700 text-purple-300'
@@ -96,18 +112,15 @@ export default function LiveWordsTool() {
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left — scrollable settings panel */}
           <div className="w-72 border-r border-[#1e2240] flex flex-col overflow-y-auto p-4 gap-4">
             <WordBoard letters={engine.letters} foundWords={engine.foundWords} phase={engine.phase} />
             <WordSettings engine={engine} />
           </div>
-          {/* Center — controls + overlay URL */}
           <WordCenter
             engine={engine} tiktok={tiktok}
             connError={connError} onClearError={() => setConnError(null)}
             overlayUrl={overlayUrl}
           />
-          {/* Right — feed + leaderboard */}
           <div className="w-80 border-l border-[#1e2240] flex flex-col overflow-hidden p-4">
             <WordFeed
               foundWords={engine.foundWords} leaderboard={engine.leaderboard}
@@ -119,4 +132,3 @@ export default function LiveWordsTool() {
     </GamePlanGate>
   );
 }
-
