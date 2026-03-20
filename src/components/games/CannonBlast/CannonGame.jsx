@@ -1,139 +1,216 @@
 /**
- * CannonGame v7 — Real Ball Guys flat-platform renderer
- * Cannon fires ball RIGHT. Ball lands, rolls, hits obstacles for distance.
- * Camera follows ball rightward. All positions in World Units (WU).
+ * CannonGame v8 — Ball Guys accurate visual
+ *
+ * Sky background with clouds + hot air balloons.
+ * Wooden platform at bottom with circular distance markers.
+ * Ball fires into sky, lands, hits bombs/springs back up.
+ * Username floats above the ball.
  */
-import React, { useCallback } from 'react';
+import React from 'react';
 import { PX_PER_WU, FLOOR_ZONES, CHARGE_MAX, CHARGE_THRESHOLD, CHEST_TYPES } from '@/hooks/useCannonEngine';
 
-const CW     = 880;   // canvas width  px
-const CH     = 320;   // canvas height px
-const PX     = PX_PER_WU;
-const GND_Y  = CH - 60;   // y pixel of ground surface
-const BALL_R = 11;         // ball radius px
-const CANNON_X = 90;       // cannon x in canvas (fixed)
+const CW      = 880;   // canvas width px
+const CH      = 460;   // canvas height px — tall enough for high arc
+const PX      = PX_PER_WU;
+const PLAT_Y  = CH - 72;  // y of platform surface in canvas
+const PLAT_H  = 44;        // platform strip height
+const BALL_R  = 11;
+const CANNON_CX = 80; // cannon x in canvas (fixed)
 
-// World → canvas: wx (world x) + camWx (camera scroll) → canvas x
-function wx2cx(wx, camWx) { return CANNON_X + (wx - camWx) * PX; }
-function wy2cy(wy)         { return GND_Y - wy * PX; }
+function wx2cx(wx, camWx) { return CANNON_CX + (wx - camWx) * PX; }
+function wy2cy(wy)         { return PLAT_Y - wy * PX; }
 
-// ── Floor zone strips ─────────────────────────────────────────────────────
-function FloorZones({ camWx }) {
+// ── Sky background with clouds & balloons ────────────────────────────────
+function SkyBackground({ camWx }) {
+  // Parallax: clouds move slower than ball
+  const p1 = (camWx * 0.2) % CW;
+  const p2 = (camWx * 0.35) % (CW * 1.5);
+
+  const clouds = [
+    { x:80,  y:60,  s:1.0 }, { x:280, y:35,  s:0.7 }, { x:500, y:70,  s:1.2 },
+    { x:680, y:45,  s:0.8 }, { x:820, y:80,  s:0.9 }, { x:150, y:130, s:0.6 },
+    { x:400, y:110, s:1.1 }, { x:620, y:140, s:0.7 }, { x:750, y:100, s:1.0 },
+  ];
+
   return (
     <>
-      {FLOOR_ZONES.map((z, i) => {
-        const x1 = wx2cx(z.minWx, camWx);
-        const x2 = i + 1 < FLOOR_ZONES.length ? wx2cx(FLOOR_ZONES[i+1].minWx, camWx) : CW + 60;
-        if (x2 < -10 || x1 > CW + 10) return null;
-        const w = x2 - x1;
+      {/* Sky gradient */}
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#7ec8f5"/>
+          <stop offset="60%"  stopColor="#b8e4f9"/>
+          <stop offset="100%" stopColor="#d6f0fa"/>
+        </linearGradient>
+      </defs>
+      <rect width={CW} height={CH} fill="url(#skyGrad)"/>
+
+      {/* Clouds layer 1 (distant, slower) */}
+      {clouds.map((c,i) => {
+        const cx = ((c.x - p1 * 0.5 + CW * 2) % (CW + 200)) - 100;
         return (
-          <g key={i}>
-            <rect x={x1} y={GND_Y} width={w} height={CH - GND_Y} fill={z.color}/>
-            <rect x={x1} y={GND_Y} width={w} height={3}
-              fill={['#22cc44','#44cc88','#44cccc','#4488cc','#9944cc'][i]} opacity={0.7}/>
-            <text x={Math.max(x1+6, Math.min(x2-6, (x1+x2)/2))} y={GND_Y + 18}
-              textAnchor="middle" fontSize={11} fontWeight="bold"
-              fill={['#22cc44','#44cc88','#44cccc','#4488cc','#9944cc'][i]} opacity={0.8}>
-              {z.label}
-            </text>
+          <g key={i} transform={`translate(${cx},${c.y}) scale(${c.s})`} opacity={0.85}>
+            <ellipse cx={0}   cy={0}  rx={38} ry={22} fill="white"/>
+            <ellipse cx={28}  cy={-8} rx={28} ry={20} fill="white"/>
+            <ellipse cx={-26} cy={-6} rx={24} ry={18} fill="white"/>
           </g>
         );
       })}
-      {/* Ground line */}
-      <line x1={0} y1={GND_Y} x2={CW} y2={GND_Y} stroke="#2a5a2a" strokeWidth={3}/>
+
+      {/* Hot air balloons (parallax, drift slowly) */}
+      {[
+        { bx:320, by:160, p:0.15, col1:'#ff6b35', col2:'#ffd700' },
+        { bx:680, by:200, p:0.25, col1:'#44cc88', col2:'#ffeeaa' },
+      ].map((b,i) => {
+        const bx = ((b.bx - camWx * b.p + CW * 4) % (CW + 400)) - 200;
+        return (
+          <g key={i} transform={`translate(${bx},${b.by})`}>
+            {/* Balloon */}
+            <ellipse cx={0} cy={0} rx={28} ry={34}
+              fill={b.col1} stroke={b.col2} strokeWidth={2}/>
+            {/* Stripes */}
+            {[-14,0,14].map((x,j) => (
+              <line key={j} x1={x} y1={-34} x2={x} y2={34}
+                stroke={b.col2} strokeWidth={1.5} opacity={0.5}/>
+            ))}
+            {/* Basket */}
+            <rect x={-8} cy={34} y={36} width={16} height={10} rx={2}
+              fill="#8b6914" stroke="#5a4510" strokeWidth={1.5}/>
+            {/* Ropes */}
+            <line x1={-8} y1={34} x2={-6} y2={44} stroke="#8b6914" strokeWidth={1.2}/>
+            <line x1={8}  y1={34} x2={6}  y2={44} stroke="#8b6914" strokeWidth={1.2}/>
+          </g>
+        );
+      })}
     </>
   );
 }
 
-// ── Distance markers ──────────────────────────────────────────────────────
+// ── Wooden platform ───────────────────────────────────────────────────────
+function Platform({ camWx }) {
+  // Wooden plank planks
+  const planks = [];
+  for (let wx = -5; wx < 350; wx += 4) {
+    const cx1 = wx2cx(wx,     camWx);
+    const cx2 = wx2cx(wx + 4, camWx);
+    if (cx2 < -5 || cx1 > CW + 5) continue;
+    planks.push(
+      <rect key={wx} x={cx1} y={PLAT_Y} width={Math.max(0,cx2-cx1-1)} height={PLAT_H}
+        fill={wx % 8 === 0 ? '#c8943a' : '#d4a044'} stroke="#a07030" strokeWidth={0.5}/>
+    );
+  }
+  return (
+    <>
+      {planks}
+      {/* Top edge highlight */}
+      <rect x={0} y={PLAT_Y} width={CW} height={4} fill="#e8b85a"/>
+      {/* Shadow under platform edge */}
+      <rect x={0} y={PLAT_Y+4} width={CW} height={3} fill="rgba(0,0,0,0.15)"/>
+    </>
+  );
+}
+
+// ── Distance markers — colored circles like real game ────────────────────
 function DistanceMarkers({ camWx }) {
-  const marks = [];
-  for (let m = 0; m <= 350; m += 20) {
+  const markers = [];
+  const colors = ['#44cc44','#44cc44','#44aacc','#aa44cc','#cc4444'];
+
+  for (let m = -2; m <= 350; m++) {
     const cx = wx2cx(m, camWx);
-    if (cx < -10 || cx > CW + 10) continue;
-    marks.push(
-      <g key={m}>
-        <line x1={cx} y1={GND_Y - 6} x2={cx} y2={GND_Y + 3} stroke="#2a4a2a" strokeWidth={1.5}/>
-        <text x={cx} y={GND_Y - 10} textAnchor="middle" fontSize={8} fill="#3a6a3a">{m}m</text>
+    if (cx < -24 || cx > CW + 24) continue;
+    const colorIdx = m < 0 ? 2 : Math.floor(m / 40) % colors.length;
+    const col = m < 0 ? '#aaa' : colors[colorIdx];
+    const r = m % 5 === 0 ? 13 : 9; // bigger every 5
+    markers.push(
+      <g key={m} transform={`translate(${cx},${PLAT_Y + PLAT_H / 2 + 3})`}>
+        <circle r={r} fill={col} stroke="rgba(0,0,0,0.3)" strokeWidth={1.5}/>
+        <text textAnchor="middle" y={5} fontSize={m % 5 === 0 ? 10 : 8}
+          fontWeight="900" fill="white" fontFamily="Arial Black,sans-serif">{m}</text>
       </g>
     );
   }
-  return <>{marks}</>;
+  return <>{markers}</>;
 }
 
-// ── Obstacle ──────────────────────────────────────────────────────────────
+// ── Obstacles on platform ─────────────────────────────────────────────────
 function Obstacle({ ob, camWx }) {
   if (!ob.active) return null;
   const cx = wx2cx(ob.wx, camWx);
   const cy = wy2cy(ob.wy);
   if (cx < -30 || cx > CW + 30) return null;
 
-  if (ob.type === 'bomb') return (
-    <g transform={`translate(${cx},${cy})`}>
-      <circle r={ob.r * PX} fill="#1a0a00" stroke={ob.color} strokeWidth={2}
-        style={{ filter:`drop-shadow(0 0 6px ${ob.color})` }}/>
-      <circle r={ob.r * PX * 0.55} fill={ob.color} opacity={0.7}/>
-      <line x1={0} y1={-ob.r*PX} x2={4} y2={-ob.r*PX - 8} stroke="#ffaa00" strokeWidth={2}/>
-      <circle cx={4} cy={-ob.r*PX-8} r={3} fill="#ffee00">
-        <animate attributeName="opacity" values="1;0.3;1" dur="0.4s" repeatCount="indefinite"/>
-      </circle>
-      <text x={0} y={ob.r*PX+14} textAnchor="middle" fontSize={9} fill={ob.color}>💣</text>
-    </g>
-  );
+  if (ob.type === 'bomb') {
+    // Red round mine like the screenshots
+    const r = ob.r * PX;
+    return (
+      <g transform={`translate(${cx},${cy})`}>
+        <circle r={r} fill="#cc2222" stroke="#881111" strokeWidth={2}
+          style={{ filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}/>
+        <circle r={r * 0.5} fill="#ff4444" opacity={0.6}/>
+        {/* Spikes */}
+        {[0,45,90,135,180,225,270,315].map((deg,i) => {
+          const rad = deg * Math.PI / 180;
+          return <line key={i}
+            x1={Math.cos(rad)*r} y1={Math.sin(rad)*r}
+            x2={Math.cos(rad)*(r+5)} y2={Math.sin(rad)*(r+5)}
+            stroke="#881111" strokeWidth={2} strokeLinecap="round"/>;
+        })}
+      </g>
+    );
+  }
 
-  if (ob.type === 'bouncer') return (
-    <g transform={`translate(${cx},${cy})`}>
-      <ellipse rx={ob.r*PX*1.1} ry={ob.r*PX*0.85} fill="#1a0a2a" stroke={ob.color} strokeWidth={2.5}
-        style={{ filter:`drop-shadow(0 0 8px ${ob.color})` }}/>
-      <ellipse rx={ob.r*PX*0.7} ry={ob.r*PX*0.55} fill={ob.color} opacity={0.5}/>
-      <text x={0} y={5} textAnchor="middle" fontSize={13}>🟡</text>
-    </g>
-  );
-
-  if (ob.type === 'power') return (
-    <g transform={`translate(${cx},${cy})`}>
-      <circle r={ob.r*PX} fill="#001a2a" stroke={ob.color} strokeWidth={2}
-        style={{ filter:`drop-shadow(0 0 8px ${ob.color})` }}>
-        <animate attributeName="r" values={`${ob.r*PX};${ob.r*PX*1.2};${ob.r*PX}`} dur="0.8s" repeatCount="indefinite"/>
-      </circle>
-      <text x={0} y={5} textAnchor="middle" fontSize={13}>⚡</text>
-    </g>
-  );
+  if (ob.type === 'bouncer') {
+    // Yellow spring bumper
+    const r = ob.r * PX;
+    return (
+      <g transform={`translate(${cx},${cy})`}>
+        {/* Spring coils */}
+        {[0,4,8,12].map(dy => (
+          <ellipse key={dy} cx={0} cy={dy - 6} rx={r*0.8} ry={3}
+            fill="none" stroke="#ffaa00" strokeWidth={2.5}/>
+        ))}
+        {/* Bumper top */}
+        <circle cy={-8} r={r} fill="#ffcc00" stroke="#cc8800" strokeWidth={2}
+          style={{ filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.4))' }}/>
+        <circle cy={-8} r={r*0.55} fill="#ffe066"/>
+      </g>
+    );
+  }
   return null;
 }
 
 // ── Explosion ─────────────────────────────────────────────────────────────
 function Explosion({ ex, camWx }) {
-  const cx = wx2cx(ex.wx, camWx), cy = wy2cy(ex.wy ?? 0);
-  const rpx = ex.r * PX * 0.5;
+  const cx = wx2cx(ex.wx, camWx);
+  const cy = wy2cy(0);
   return (
     <g transform={`translate(${cx},${cy})`}>
-      <circle r={rpx*1.8} fill={ex.color} opacity={0.2}/>
-      <circle r={rpx}     fill={ex.color} opacity={0.5}/>
-      <circle r={rpx*0.4} fill="#fff"     opacity={0.9}/>
-      {[0,45,90,135,180,225,270,315].map((d,i)=>{
-        const rad=(d*Math.PI)/180;
+      <circle r={40} fill="#ff6600" opacity={0.3}/>
+      <circle r={25} fill="#ff9900" opacity={0.6}/>
+      <circle r={12} fill="#ffff00" opacity={0.9}/>
+      {[0,30,60,90,120,150,180,210,240,270,300,330].map((d,i) => {
+        const rad = d * Math.PI / 180;
         return <line key={i} x1={0} y1={0}
-          x2={Math.cos(rad)*rpx*1.5} y2={Math.sin(rad)*rpx*1.5}
-          stroke={ex.color} strokeWidth={2.5} opacity={0.8}/>;
+          x2={Math.cos(rad)*45} y2={Math.sin(rad)*45}
+          stroke="#ff6600" strokeWidth={3} opacity={0.7}/>;
       })}
     </g>
   );
 }
 
-// ── Hit label effect ─────────────────────────────────────────────────────
+// ── Hit labels ────────────────────────────────────────────────────────────
 function HitEffect({ ef, camWx }) {
-  const cx = wx2cx(ef.wx, camWx), cy = wy2cy(ef.wy ?? 0) - 20;
+  const cx = wx2cx(ef.wx, camWx);
+  const cy = wy2cy(ef.wy);
   return (
-    <text x={cx} y={cy} textAnchor="middle" fontSize={13} fontWeight="900"
-      fill={ef.color} stroke="black" strokeWidth={1}
-      style={{ filter:`drop-shadow(0 0 4px ${ef.color})` }}>
+    <text x={cx} y={cy} textAnchor="middle" fontSize={16} fontWeight="900"
+      fontFamily="Arial Black,sans-serif" fill={ef.color}
+      stroke="white" strokeWidth={2} paintOrder="stroke">
       {ef.label}
     </text>
   );
 }
 
-// ── Trajectory arc preview ────────────────────────────────────────────────
+// ── Trajectory arc ────────────────────────────────────────────────────────
 function TrajectoryArc({ points, camWx }) {
   if (!points || points.length < 2) return null;
   const d = points.map((p, i) => {
@@ -141,128 +218,185 @@ function TrajectoryArc({ points, camWx }) {
     return `${i === 0 ? 'M' : 'L'} ${cx.toFixed(1)} ${cy.toFixed(1)}`;
   }).join(' ');
   return (
-    <path d={d} fill="none" stroke="rgba(255,215,0,0.35)" strokeWidth={2}
-      strokeDasharray="6,5"/>
+    <path d={d} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth={2.5}
+      strokeDasharray="8,6"/>
   );
 }
 
-// ── Ball ─────────────────────────────────────────────────────────────────
-function Ball({ wx, wy, rot, phase }) {
-  if (phase === 'idle' || phase === 'chest_pick' || phase === 'charging') return null;
-  const cx = wx2cx(wx, 0) - CANNON_X + CANNON_X; // always relative to cam passed separately
-  return null; // rendered in main with camWx
-}
-
-function BallInWorld({ wx, wy, rot, phase, camWx }) {
+// ── Ball with username ────────────────────────────────────────────────────
+function Ball({ wx, wy, rot, phase, camWx, username }) {
   if (phase === 'idle' || phase === 'chest_pick') return null;
-  if (phase === 'charging' && wx === 0) return null;
+  if (phase === 'charging') return null;
   const cx = wx2cx(wx, camWx);
   const cy = wy2cy(wy);
-  const isFlying = phase === 'in_flight';
+  if (cx < -30 || cx > CW + 30) return null;
+
   return (
-    <g transform={`translate(${cx},${cy}) rotate(${rot})`}>
-      {/* Shadow on ground */}
-      {wy > 0 && (
-        <ellipse cx={0} cy={GND_Y - cy} rx={BALL_R * (1 - wy/30)} ry={3}
-          fill="rgba(0,0,0,0.3)" style={{ transform:`translateY(${GND_Y-cy}px)` }}/>
+    <g>
+      {/* Shadow on platform */}
+      {wy < 8 && (
+        <ellipse cx={cx} cy={PLAT_Y - 2} rx={Math.max(4, BALL_R * (1 - wy/8))} ry={3}
+          fill="rgba(0,0,0,0.25)"/>
       )}
-      <circle r={BALL_R} fill="#e0e0e0" stroke="#999" strokeWidth={2}
-        style={{ filter:'drop-shadow(0 3px 8px rgba(0,0,0,0.7))' }}/>
-      {/* Face — counter-rotates */}
-      <g transform={`rotate(${-rot})`}>
-        <circle cx={-4} cy={-3} r={3.5} fill="rgba(0,0,0,0.75)"/>
-        <circle cx={4}  cy={-3} r={3.5} fill="rgba(0,0,0,0.75)"/>
-        <path d="M -4 3 Q 0 7 4 3" stroke="rgba(0,0,0,0.75)" strokeWidth={2.5}
-          fill="none" strokeLinecap="round"/>
+      {/* Ball */}
+      <g transform={`translate(${cx},${cy}) rotate(${rot})`}>
+        <circle r={BALL_R} fill="#555" stroke="#333" strokeWidth={2}
+          style={{ filter:'drop-shadow(0 3px 6px rgba(0,0,0,0.6))' }}/>
+        {/* Texture lines */}
+        <g transform={`rotate(${-rot})`}>
+          <circle cx={-4} cy={-3} r={3} fill="rgba(255,255,255,0.8)"/>
+          <circle cx={4}  cy={-3} r={3} fill="rgba(255,255,255,0.8)"/>
+          <path d="M -4 3 Q 0 6 4 3" stroke="rgba(255,255,255,0.8)" strokeWidth={2}
+            fill="none" strokeLinecap="round"/>
+        </g>
       </g>
-      {/* Speed lines when rolling */}
-      {phase === 'rolling' && (
-        <>
-          <line x1={-BALL_R} y1={-2} x2={-BALL_R-16} y2={-2} stroke="rgba(255,255,255,0.6)" strokeWidth={2.5}/>
-          <line x1={-BALL_R} y1={3}  x2={-BALL_R-10} y2={3}  stroke="rgba(255,255,255,0.35)" strokeWidth={2}/>
-        </>
+      {/* Username label above ball */}
+      {username && (
+        <text x={cx} y={cy - BALL_R - 7} textAnchor="middle"
+          fontSize={11} fontWeight="700" fontFamily="Arial,sans-serif"
+          fill="white" stroke="rgba(0,0,0,0.7)" strokeWidth={3} paintOrder="stroke">
+          {username}
+        </text>
       )}
     </g>
   );
 }
 
-// ── Cannon (left side) ───────────────────────────────────────────────────
+// ── Cannon (fixed left, on platform) ─────────────────────────────────────
 function Cannon({ chargeLevel, phase }) {
-  const chargePct = chargeLevel / CHARGE_MAX;
-  const barrelAngle = -10 - chargePct * 5; // slight up-angle when charged
+  const pct = chargeLevel / CHARGE_MAX;
+  const barrelAngle = -(28 + pct * 10); // points more upward when charged
   const isCharging = phase === 'charging';
-  const isFired = phase === 'in_flight' || phase === 'rolling';
+  const isFired    = phase === 'in_flight' || phase === 'rolling';
+  const baseY = PLAT_Y;
+
   return (
-    <g transform={`translate(${CANNON_X - 10}, ${GND_Y})`}>
+    <g transform={`translate(${CANNON_CX}, ${baseY})`}>
       {/* Wheels */}
-      <circle cx={-10} cy={4} r={16} fill="#1a1008" stroke="#4a2a10" strokeWidth={2.5}/>
-      <circle cx={18}  cy={4} r={16} fill="#1a1008" stroke="#4a2a10" strokeWidth={2.5}/>
+      <circle cx={-14} cy={2} r={14} fill="#333" stroke="#222" strokeWidth={2}/>
+      <circle cx={14}  cy={2} r={14} fill="#333" stroke="#222" strokeWidth={2}/>
+      {/* Spokes */}
+      {[0,60,120].map(d => {
+        const r = d*Math.PI/180;
+        return <line key={d} x1={-14+Math.cos(r)*12} y1={2+Math.sin(r)*12}
+          x2={-14-Math.cos(r)*12} y2={2-Math.sin(r)*12} stroke="#555" strokeWidth={1.5}/>;
+      })}
       {/* Body */}
-      <rect x={-22} y={-10} width={56} height={20} rx={6} fill="#120c04" stroke="#3a2008" strokeWidth={2}/>
-      {/* Barrel — tilted up-right */}
-      <g transform={`rotate(${barrelAngle}, 10, -3)`}>
-        <rect x={6} y={-9} width={62} height={18} rx={9} fill="#0e0e0e" stroke="#555" strokeWidth={2}/>
-        <rect x={62} y={-11} width={10} height={22} rx={4} fill="#080808" stroke="#444" strokeWidth={2}/>
-        {/* Muzzle flash */}
-        {isFired && <ellipse cx={78} cy={0} rx={18} ry={11} fill="#ff5500" opacity={0.9}/>}
-        {isFired && <ellipse cx={78} cy={0} rx={10} ry={6} fill="#ffbb00"/>}
+      <rect x={-20} y={-12} width={50} height={18} rx={5} fill="#2a2a2a" stroke="#555" strokeWidth={1.5}/>
+      {/* Barrel */}
+      <g transform={`rotate(${barrelAngle}, 8, -4)`}>
+        <rect x={4} y={-8} width={58} height={16} rx={8} fill="#1a1a1a" stroke="#666" strokeWidth={2}/>
+        <rect x={58} y={-10} width={8} height={20} rx={4} fill="#111" stroke="#555" strokeWidth={1.5}/>
+        {isFired && (
+          <>
+            <ellipse cx={72} cy={0} rx={16} ry={10} fill="#ff6600" opacity={0.9}/>
+            <ellipse cx={72} cy={0} rx={9}  ry={6}  fill="#ffcc00"/>
+          </>
+        )}
       </g>
       {/* Fuse */}
       {isCharging && (
         <>
-          <path d="M 10 -10 Q 16 -24 22 -18" stroke="#7a3a0a" strokeWidth={2.5} fill="none" strokeLinecap="round"/>
-          <circle cx={22} cy={-18} r={Math.max(2.5, 2.5 + chargePct*4)} fill="#ff6600">
-            <animate attributeName="opacity" values="1;0.4;1" dur={`${0.5 - chargePct*0.35}s`} repeatCount="indefinite"/>
+          <path d="M 8 -12 Q 15 -26 22 -18" stroke="#886633" strokeWidth={2.5} fill="none" strokeLinecap="round"/>
+          <circle cx={22} cy={-18} r={Math.max(2, 2 + pct*5)} fill="#ff6600">
+            <animate attributeName="opacity" values="1;0.3;1" dur={`${0.6 - pct*0.4}s`} repeatCount="indefinite"/>
           </circle>
         </>
-      )}
-      {/* Charge glow */}
-      {isCharging && chargePct > 0.3 && (
-        <circle cx={10} cy={0} r={20 + chargePct*18} fill="rgba(255,200,0,0.08)"
-          stroke={`rgba(255,200,0,${chargePct*0.4})`} strokeWidth={2}/>
       )}
     </g>
   );
 }
 
-// ── Charge bar HUD ───────────────────────────────────────────────────────
+// ── Multiplier HUD (top-left, like real game) ─────────────────────────────
+function MultiplierHUD({ multipliers, phase, score }) {
+  if (phase === 'idle' || phase === 'chest_pick') return null;
+  return (
+    <g transform="translate(10,10)">
+      <rect x={0} y={0} width={88} height={76} rx={6}
+        fill="rgba(240,230,180,0.92)" stroke="#8b6914" strokeWidth={2}/>
+      {[
+        { icon:'🔫', val:`${multipliers.power.toFixed(1)}x`, color:'#cc6600' },
+        { icon:'💣', val:`${multipliers.bomb}x`,            color:'#cc2222' },
+        { icon:'🟡', val:`${multipliers.bouncer}x`,         color:'#cc8800' },
+      ].map((m, i) => (
+        <g key={i} transform={`translate(6, ${8 + i*22})`}>
+          <text y={14} fontSize={14}>{m.icon}</text>
+          <text x={22} y={14} fontSize={12} fontWeight="900" fill={m.color}
+            fontFamily="Arial Black,sans-serif">
+            {m.val}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+}
+
+// ── Score HUD (top, like real game) ──────────────────────────────────────
+function ScoreHUD({ score, dist, phase }) {
+  if (!score && !dist) return null;
+  const rewards = dist < 30 ? 'Poor' : dist < 60 ? 'Fair' : dist < 100 ? 'Good' : 'Amazing!';
+  const rColor  = dist < 30 ? '#cc6644' : dist < 60 ? '#ccaa44' : dist < 100 ? '#44cc66' : '#44aacc';
+  return (
+    <g transform={`translate(${CW/2 - 70}, 8)`}>
+      <rect x={0} y={0} width={140} height={42} rx={6}
+        fill="rgba(240,230,180,0.92)" stroke="#8b6914" strokeWidth={2}/>
+      <text x={8}  y={17} fontSize={12} fontFamily="Arial,sans-serif" fill="#333">Score:</text>
+      <text x={60} y={17} fontSize={14} fontWeight="900" fill="#33aa33"
+        fontFamily="Arial Black,sans-serif">{score || dist * 10}</text>
+      <text x={8}  y={35} fontSize={11} fontFamily="Arial,sans-serif" fill="#555">Rewards:</text>
+      <text x={68} y={35} fontSize={12} fontWeight="900" fill={rColor}
+        fontFamily="Arial Black,sans-serif">{rewards}</text>
+    </g>
+  );
+}
+
+// ── Charge bar (center top) ───────────────────────────────────────────────
 function ChargeBarHUD({ chargeLevel, phase }) {
   if (phase !== 'charging') return null;
   const pct = chargeLevel / CHARGE_MAX;
-  const threshPct = CHARGE_THRESHOLD / CHARGE_MAX;
-  const col = pct < 0.4 ? '#00e5ff' : pct < 0.7 ? '#ffd600' : pct < 0.9 ? '#ff6d00' : '#ff1744';
+  const thresh = CHARGE_THRESHOLD / CHARGE_MAX;
+  const col = pct < 0.4 ? '#44aaff' : pct < 0.7 ? '#ffcc00' : pct < 0.9 ? '#ff8800' : '#ff2222';
   return (
-    <g transform={`translate(${CW/2 - 110}, 12)`}>
-      <rect x={0} y={0} width={220} height={28} rx={10} fill="rgba(0,0,0,0.8)" stroke="rgba(255,255,255,0.2)" strokeWidth={1.5}/>
-      <rect x={3} y={3} width={214 * pct} height={22} rx={8} fill={col}
-        style={{ filter:`drop-shadow(0 0 6px ${col})` }}/>
-      {/* Threshold marker */}
-      <line x1={3 + 214*threshPct} y1={0} x2={3 + 214*threshPct} y2={28} stroke="white" strokeWidth={2} opacity={0.6}/>
-      <text x={110} y={19} textAnchor="middle" fontSize={11} fontWeight="900" fill="white">
-        {pct < threshPct ? '⚡ CHARGE...' : pct < 0.99 ? `⚡ ${Math.round(pct*100)}% — RELEASE TO FIRE!` : '🔥 FULLY CHARGED!'}
+    <g transform={`translate(${CW/2 - 120}, CH - 20}`}>
+      <rect x={0} y={CH - 40} width={240} height={26} rx={13}
+        fill="rgba(0,0,0,0.6)" stroke="rgba(255,255,255,0.3)" strokeWidth={1.5}/>
+      <rect x={3} y={CH - 37} width={Math.max(0, 234 * pct)} height={20} rx={10} fill={col}
+        style={{ filter:`drop-shadow(0 0 8px ${col})` }}/>
+      <line x1={3 + 234*thresh} y1={CH-40} x2={3+234*thresh} y2={CH-14}
+        stroke="white" strokeWidth={2} opacity={0.7}/>
+      <text x={120} y={CH - 23} textAnchor="middle" fontSize={11} fontWeight="900"
+        fill="white" fontFamily="Arial Black,sans-serif">
+        {pct < thresh ? '⚡ CHARGE...' : pct >= 0.99 ? '🔥 FIRE!' : `⚡ ${Math.round(pct*100)}% — RELEASE TO FIRE!`}
       </text>
     </g>
   );
 }
 
-// ── Chest picker overlay ─────────────────────────────────────────────────
+// ── Chest picker ──────────────────────────────────────────────────────────
 function ChestPicker({ chestsPicked, onPick }) {
   const remaining = 3 - chestsPicked.length;
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 rounded-2xl z-20">
-      <div className="text-white font-black text-xl mb-2">PICK {remaining} CHEST{remaining!==1?'S':''}!</div>
-      <div className="text-gray-400 text-xs mb-6">Gifts from viewers also pick chests!</div>
+    <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
+      style={{ background:'linear-gradient(180deg,rgba(126,200,245,0.95),rgba(184,228,249,0.95))' }}>
+      <div className="text-2xl font-black text-white mb-1 drop-shadow-lg"
+        style={{ textShadow:'2px 2px 0 rgba(0,0,0,0.3)' }}>
+        PICK {remaining} CHEST{remaining!==1?'S':''}!
+      </div>
+      <div className="text-sm text-white/70 mb-6">Choose your powerups before launch</div>
       <div className="flex gap-5">
         {Object.entries(CHEST_TYPES).map(([type, def]) => {
           const picked = chestsPicked.filter(t=>t===type).length;
           return (
             <button key={type} onClick={() => onPick(type)}
-              className="flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all hover:scale-110 active:scale-95"
-              style={{ borderColor: def.color, background: `${def.color}18` }}>
-              <div className="text-4xl">{def.emoji}</div>
-              <div className="font-black text-sm" style={{ color: def.color }}>{def.label}</div>
-              <div className="text-gray-500 text-[10px]">{def.desc}</div>
-              {picked > 0 && <div className="text-xs font-bold" style={{ color: def.color }}>✓ picked</div>}
+              className="flex flex-col items-center gap-2 p-4 rounded-2xl border-3 transition-all hover:scale-110 active:scale-95 shadow-xl"
+              style={{ borderColor:def.color, background:'rgba(200,160,80,0.9)', border:`3px solid ${def.color}` }}>
+              <div className="text-5xl">{def.emoji}</div>
+              <div className="font-black text-base" style={{ color:def.color, textShadow:'1px 1px 0 rgba(0,0,0,0.4)' }}>
+                {def.label}
+              </div>
+              {picked > 0 && (
+                <div className="text-xs font-bold text-white bg-green-600 px-2 py-0.5 rounded-full">✓ picked</div>
+              )}
             </button>
           );
         })}
@@ -270,8 +404,8 @@ function ChestPicker({ chestsPicked, onPick }) {
       {chestsPicked.length > 0 && (
         <div className="mt-5 flex gap-2">
           {chestsPicked.map((t,i) => (
-            <div key={i} className="w-8 h-8 rounded-lg flex items-center justify-center text-xl"
-              style={{ background: CHEST_TYPES[t].color + '33', border: `2px solid ${CHEST_TYPES[t].color}` }}>
+            <div key={i} className="w-10 h-10 rounded-xl flex items-center justify-center text-2xl shadow"
+              style={{ background:`${CHEST_TYPES[t].color}55`, border:`2px solid ${CHEST_TYPES[t].color}` }}>
               {CHEST_TYPES[t].emoji}
             </div>
           ))}
@@ -281,48 +415,53 @@ function ChestPicker({ chestsPicked, onPick }) {
   );
 }
 
-// ── Main export ───────────────────────────────────────────────────────────
+// ── Tap to shoot screen ────────────────────────────────────────────────────
+function TapToShoot({ chargeLevel }) {
+  const pct = chargeLevel / CHARGE_MAX;
+  if (pct > 0.05) return null; // hide once charging starts
+  return (
+    <g>
+      <text x={CW/2} y={CH/2 - 20} textAnchor="middle" fontSize={32} fontWeight="900"
+        fontFamily="Arial Black,sans-serif" fill="white"
+        stroke="rgba(0,0,0,0.4)" strokeWidth={3} paintOrder="stroke">
+        Tap To
+      </text>
+      <text x={CW/2} y={CH/2 + 20} textAnchor="middle" fontSize={32} fontWeight="900"
+        fontFamily="Arial Black,sans-serif" fill="white"
+        stroke="rgba(0,0,0,0.4)" strokeWidth={3} paintOrder="stroke">
+        Shoot!
+      </text>
+    </g>
+  );
+}
+
+// ── Main export ────────────────────────────────────────────────────────────
 export default function CannonGame({ engine }) {
   const {
     phase, chestsPicked, multipliers, chargeLevel, fuelsLeft,
     ballWx, ballWy, ballRot, camWx, currentDist, finalScore, bestScore,
     obstacles, explosions, hitEffects, activeBoost, trajectory, floorZone,
-    pickChest, startHold, endHold,
+    pickChest, startHold, endHold, shooter,
   } = engine;
-
-  const stunPct = 0;
-  const showBall = phase !== 'idle' && phase !== 'chest_pick' &&
-                   !(phase === 'charging');
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Canvas */}
-      <div className="relative rounded-2xl overflow-hidden border-2 border-[#1e2240]"
+      <div className="relative rounded-2xl overflow-hidden border-2 border-[#c8943a]"
         style={{ height: CH }}>
 
-        {/* Chest picker overlay */}
         {phase === 'chest_pick' && <ChestPicker chestsPicked={chestsPicked} onPick={pickChest}/>}
 
-        <svg width="100%" height={CH} viewBox={`0 0 ${CW} ${CH}`} preserveAspectRatio="xMidYMid meet"
-          style={{ background:'linear-gradient(180deg,#0d1a0d 0%,#0a2a0a 50%,#0d1a0d 100%)' }}>
+        <svg width="100%" height={CH} viewBox={`0 0 ${CW} ${CH}`}
+          preserveAspectRatio="xMidYMid meet">
 
-          {/* Background sky/trees */}
-          {[40,120,220,340,480,620,760].map((x,i)=>(
-            <g key={i} transform={`translate(${x - (camWx*PX*0.1)%CW},0)`} opacity={0.25}>
-              <polygon points={`0,${CH-60} 16,${CH-110} 32,${CH-60}`} fill="#1a4a1a"/>
-              <polygon points={`8,${CH-100} 20,${CH-140} 32,${CH-100}`} fill="#1a4a1a"/>
-            </g>
-          ))}
+          {/* Sky + clouds + balloons */}
+          <SkyBackground camWx={camWx}/>
 
-          {/* Floor zones + ground */}
-          <FloorZones camWx={camWx}/>
+          {/* Platform */}
+          <Platform camWx={camWx}/>
+
+          {/* Distance markers (colored circles) */}
           <DistanceMarkers camWx={camWx}/>
-
-          {/* Wall at start */}
-          <rect x={wx2cx(-2, camWx)} y={0} width={PX*2} height={GND_Y} fill="#1a1a0a" opacity={0.8}/>
-
-          {/* Trajectory arc */}
-          {phase === 'charging' && <TrajectoryArc points={trajectory} camWx={camWx}/>}
 
           {/* Obstacles */}
           {obstacles.map(ob => <Obstacle key={ob.id} ob={ob} camWx={camWx}/>)}
@@ -333,54 +472,49 @@ export default function CannonGame({ engine }) {
           {/* Hit labels */}
           {hitEffects.map(ef => <HitEffect key={ef.id} ef={ef} camWx={camWx}/>)}
 
-          {/* Ball */}
-          {showBall && <BallInWorld wx={ballWx} wy={ballWy} rot={ballRot} phase={phase} camWx={camWx}/>}
+          {/* Trajectory arc (while charging) */}
+          {phase === 'charging' && <TrajectoryArc points={trajectory} camWx={camWx}/>}
 
-          {/* Cannon — fixed left */}
+          {/* Ball + username */}
+          <Ball wx={ballWx} wy={ballWy} rot={ballRot}
+            phase={phase} camWx={camWx} username={shooter}/>
+
+          {/* Cannon (fixed left) */}
           <Cannon chargeLevel={chargeLevel} phase={phase}/>
 
-          {/* Charge bar */}
+          {/* "Tap to Shoot" hint */}
+          {phase === 'charging' && <TapToShoot chargeLevel={chargeLevel}/>}
+
+          {/* Multiplier HUD (top-left, like real game) */}
+          <MultiplierHUD multipliers={multipliers} phase={phase} score={currentDist}/>
+
+          {/* Score HUD (top center) */}
+          {(phase === 'in_flight' || phase === 'rolling' || phase === 'landed') && (
+            <ScoreHUD score={finalScore} dist={currentDist} phase={phase}/>
+          )}
+
+          {/* Charge bar (center, near bottom) */}
           <ChargeBarHUD chargeLevel={chargeLevel} phase={phase}/>
 
-          {/* Live distance */}
-          {(phase==='in_flight'||phase==='rolling') && (
-            <g>
-              <rect x={CW-130} y={10} width={120} height={40} rx={8} fill="rgba(0,0,0,0.75)" stroke="rgba(255,215,0,0.5)" strokeWidth={1.5}/>
-              <text x={CW-70} y={26} textAnchor="middle" fontSize={10} fill="#aaa">DISTANCE</text>
-              <text x={CW-70} y={44} textAnchor="middle" fontSize={20} fontWeight="900" fill="#ffd700" fontFamily="monospace">{currentDist}m</text>
-            </g>
-          )}
-
-          {/* Floor zone indicator */}
-          {(phase==='rolling') && floorZone.mult > 1 && (
-            <g transform="translate(10,10)">
-              <rect x={0} y={0} width={90} height={36} rx={7} fill="rgba(0,0,0,0.75)" stroke={floorZone.color} strokeWidth={2}/>
-              <text x={45} y={23} textAnchor="middle" fontSize={14} fontWeight="900" fill={floorZone.color}>{floorZone.label} ZONE!</text>
-            </g>
-          )}
-
-          {/* Best score */}
+          {/* Best score top-right */}
           {bestScore > 0 && (
-            <g>
-              <rect x={10} y={10} width={105} height={30} rx={7} fill="rgba(0,0,0,0.7)" stroke="rgba(255,215,0,0.3)" strokeWidth={1}/>
-              <text x={62} y={30} textAnchor="middle" fontSize={12} fontWeight="bold" fill="#ffd700">🏆 {bestScore} pts</text>
+            <g transform={`translate(${CW - 110}, 10)`}>
+              <rect x={0} y={0} width={100} height={36} rx={6}
+                fill="rgba(240,230,180,0.92)" stroke="#8b6914" strokeWidth={2}/>
+              <text x={50} y={23} textAnchor="middle" fontSize={13} fontWeight="900"
+                fill="#cc8800" fontFamily="Arial Black,sans-serif">🏆 {bestScore}</text>
             </g>
           )}
 
           {/* Fuels remaining */}
-          {fuelsLeft > 0 && (phase==='landed') && (
-            <g transform={`translate(${CW/2-60},14)`}>
-              <rect x={0} y={0} width={120} height={30} rx={8} fill="rgba(255,100,0,0.9)" stroke="#ff5500" strokeWidth={2}/>
-              <text x={60} y={20} textAnchor="middle" fontSize={12} fontWeight="900" fill="white">🔥 {fuelsLeft} SHOT{fuelsLeft!==1?'S':''} LEFT!</text>
-            </g>
-          )}
-
-          {/* Multiplier badges */}
-          {phase !== 'idle' && phase !== 'chest_pick' && (
-            <g transform="translate(10,52)">
-              <text x={0} y={0} fontSize={10} fill="#ffd600">⚡{multipliers.power.toFixed(1)}× POWER</text>
-              <text x={0} y={14} fontSize={10} fill="#ff6d00">💣 {multipliers.bomb} BOMBS</text>
-              <text x={0} y={28} fontSize={10} fill="#7c4dff">🟡 {multipliers.bouncer} SPRING</text>
+          {fuelsLeft > 0 && phase === 'landed' && (
+            <g transform={`translate(${CW/2 - 65}, ${CH - 50})`}>
+              <rect x={0} y={0} width={130} height={32} rx={8}
+                fill="rgba(255,100,0,0.9)" stroke="#cc5500" strokeWidth={2}/>
+              <text x={65} y={22} textAnchor="middle" fontSize={13} fontWeight="900"
+                fill="white" fontFamily="Arial Black,sans-serif">
+                🔥 {fuelsLeft} SHOT{fuelsLeft!==1?'S':''} LEFT!
+              </text>
             </g>
           )}
         </svg>
@@ -388,7 +522,7 @@ export default function CannonGame({ engine }) {
         {/* Boost popup */}
         {activeBoost && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-            <div className="px-5 py-2.5 rounded-2xl font-black text-lg text-black text-center animate-bounce"
+            <div className="px-5 py-2.5 rounded-2xl font-black text-lg text-black text-center animate-bounce shadow-2xl"
               style={{ background:activeBoost.color, boxShadow:`0 0 28px ${activeBoost.color}99` }}>
               {activeBoost.emoji} {activeBoost.label}
               {activeBoost.user && <div className="text-xs opacity-75">from @{activeBoost.user}</div>}
@@ -396,17 +530,15 @@ export default function CannonGame({ engine }) {
           </div>
         )}
 
-        {/* Final score overlay */}
+        {/* Final score */}
         {phase === 'landed' && finalScore > 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="text-center">
-              <div className="text-6xl font-black text-yellow-400 drop-shadow-lg"
-                style={{ textShadow:'0 0 40px #ffd70088' }}>
-                {finalScore}
-              </div>
-              <div className="text-white font-bold text-lg">POINTS</div>
-              <div className="text-gray-400 text-sm">{currentDist}m × {floorZone.mult}× zone</div>
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center">
+            <div className="text-7xl font-black drop-shadow-2xl"
+              style={{ color:'#ffcc00', textShadow:'3px 3px 0 rgba(0,0,0,0.4), 0 0 40px #ffaa0088' }}>
+              {finalScore}
             </div>
+            <div className="text-white font-black text-xl mt-1 drop-shadow-lg">POINTS!</div>
+            <div className="text-white/70 text-sm">{currentDist}m · {floorZone.label} zone</div>
           </div>
         )}
       </div>
@@ -417,22 +549,23 @@ export default function CannonGame({ engine }) {
           onMouseDown={startHold} onMouseUp={endHold}
           onTouchStart={startHold} onTouchEnd={endHold}
           className="w-full py-4 rounded-2xl font-black text-xl tracking-widest select-none transition-all active:scale-95"
-          style={{ background: chargeLevel >= CHARGE_THRESHOLD
-            ? 'linear-gradient(135deg,#ff6d00,#ff1744)'
-            : 'linear-gradient(135deg,#1a3a2a,#1a2a3a)',
-            border: `3px solid ${chargeLevel >= CHARGE_THRESHOLD ? '#ff6d00' : '#1e2240'}`,
-            color: chargeLevel >= CHARGE_THRESHOLD ? 'white' : '#666',
-            boxShadow: chargeLevel >= CHARGE_THRESHOLD ? '0 0 30px #ff6d0088' : 'none',
+          style={{
+            background: chargeLevel >= CHARGE_THRESHOLD
+              ? 'linear-gradient(135deg,#ff8800,#ff2222)'
+              : 'linear-gradient(135deg,#4488aa,#2266aa)',
+            border: `3px solid ${chargeLevel >= CHARGE_THRESHOLD ? '#ff8800' : '#336688'}`,
+            color: 'white',
+            boxShadow: chargeLevel >= CHARGE_THRESHOLD ? '0 0 30px #ff880088' : 'none',
           }}>
           {chargeLevel < CHARGE_THRESHOLD ? '⚡ HOLD TO CHARGE' : '🔥 RELEASE TO FIRE!'}
         </button>
       )}
 
-      {/* Stats bar */}
+      {/* Stats */}
       <div className="grid grid-cols-4 gap-2">
         {[
           ['Distance', currentDist ? `${currentDist}m` : '—', 'text-cyan-400'],
-          ['Score',    finalScore || (phase==='rolling' ? `${Math.round(currentDist * floorZone.mult * 10)}` : '—'), 'text-yellow-400'],
+          ['Score',    finalScore || (currentDist > 0 ? Math.round(currentDist * (floorZone?.mult||1) * 10) : '—'), 'text-yellow-400'],
           ['Phase',    phase.replace('_',' ').toUpperCase(),
             phase==='in_flight'?'text-blue-400':phase==='rolling'?'text-green-400':phase==='charging'?'text-orange-400':'text-gray-400'],
           ['Fuels',    `${fuelsLeft} left`, fuelsLeft > 0 ? 'text-orange-400' : 'text-gray-600'],
