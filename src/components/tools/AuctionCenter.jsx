@@ -64,6 +64,7 @@ export default function AuctionCenter({ engine, tiktok, connError, onClearError,
           ðŸŽ¨ Setup
         </button>
       </div>
+      <p className="text-[9px] text-gray-700 mt-1">Browser Source · <span className="text-cyan-800">1080x1920px (9:16 portrait)</span> · TikTok recommended</p>
 
       {/* Earnings */}
       <div className="bg-green-950/20 border border-green-900/30 rounded-xl p-3 flex items-center gap-4">
@@ -169,3 +170,4 @@ export default function AuctionCenter({ engine, tiktok, connError, onClearError,
     </div>
   );
 }
+

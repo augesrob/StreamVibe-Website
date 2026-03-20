@@ -27,6 +27,8 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
     rolling:'text-green-400', landed:'text-yellow-400', chest_pick:'text-purple-400',
   }[phase] ?? 'text-gray-400';
 
+  const isWaitingLive = status === 'connecting' && !!connUser;
+
   return (
     <div className="flex flex-col gap-3 p-4 overflow-y-auto h-full">
 
@@ -43,6 +45,9 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
             {copied ? '✓' : '📋'}
           </button>
         </div>
+        <p className="text-[9px] text-gray-700 mt-1.5 leading-relaxed">
+          Add as Browser Source · <span className="text-cyan-800">1080×1920px (9:16 portrait)</span> · TikTok recommended
+        </p>
       </div>
 
       {/* Status */}
@@ -53,37 +58,33 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
 
       {/* TikTok connect */}
       <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-        <button onClick={()=>{ if(status==='connected'){disconnect();}else if(usernameInput.trim()){connect(usernameInput.trim());}}}
+        <button onClick={()=>{ if(status==='connected'||isWaitingLive){disconnect();}else if(usernameInput.trim()){connect(usernameInput.trim());}}}
           className={`w-full py-2.5 rounded-lg font-mono font-black text-xs tracking-widest flex items-center justify-center gap-2 transition-all
-            ${status==='connected'?'bg-gray-700 text-gray-400':'bg-gradient-to-r from-cyan-500 to-blue-500 text-black'}`}>
+            ${status==='connected'?'bg-gray-700 text-gray-400':isWaitingLive?'bg-yellow-900/40 text-yellow-300 border border-yellow-800':'bg-gradient-to-r from-cyan-500 to-blue-500 text-black'}`}>
           <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot}`}/>
-          {status==='connected'?`@${connUser} — Disconnect`:status==='connecting'?'CONNECTING…':'♪ CONNECT MY LIVE'}
+          {status==='connected'?`@${connUser} — Disconnect`:isWaitingLive?`⏳ Waiting for @${connUser} to go LIVE... — Cancel`:status==='connecting'?'CONNECTING…':'♪ CONNECT MY LIVE'}
         </button>
-        {status !== 'connected' && (
+        {isWaitingLive && <p className="text-[10px] text-yellow-600 text-center mt-2">Bridge is monitoring — connects automatically when live</p>}
+        {(status==='disconnected'||status==='error') && (
           <input value={usernameInput} onChange={e=>setUsernameInput(e.target.value)}
             onKeyDown={e=>e.key==='Enter'&&usernameInput.trim()&&connect(usernameInput.trim())}
             placeholder="@yourtiktokusername"
             className="mt-2 w-full bg-[#0a0b14] border border-[#1e2240] rounded-lg px-3 py-1.5 text-white placeholder:text-gray-600 font-semibold focus:border-cyan-500 outline-none text-sm"/>
         )}
-        {connError && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-red-400">
-            <span>⚠ {connError}</span>
-            <button onClick={onClearError} className="ml-auto text-gray-600 hover:text-gray-400">✕</button>
-          </div>
-        )}
+        {connError && <p className="text-[10px] text-red-500 mt-2 text-center">{connError}</p>}
       </div>
 
       {/* Action buttons */}
       <div className="space-y-2">
         {canStart && (
           <button onClick={()=>startRound('host')}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white font-mono font-black text-sm tracking-widest transition-all hover:opacity-90">
+            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white font-mono font-black text-sm tracking-widest">
             🎁 NEW ROUND
           </button>
         )}
         {canRefire && (
           <button onClick={()=>refire('host')}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-mono font-black text-sm tracking-widest transition-all hover:opacity-90">
+            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-mono font-black text-sm tracking-widest">
             🔥 REFIRE ({fuelsLeft} left)
           </button>
         )}
@@ -99,16 +100,15 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
         </button>
       </div>
 
-      {/* Chest quick-pick (during chest_pick phase) */}
+      {/* Chest quick-pick */}
       {phase === 'chest_pick' && (
         <div className="bg-[#151828] border border-purple-900 rounded-xl p-3">
           <div className="text-[9px] font-bold tracking-widest text-purple-400 uppercase mb-2">🎁 QUICK PICK</div>
           {Object.entries(CHEST_TYPES).map(([type, def]) => (
             <button key={type} onClick={() => pickChest(type)}
-              className="w-full flex items-center gap-2 py-1.5 px-2 rounded-lg mb-1 text-xs font-bold transition-all hover:opacity-80"
-              style={{ background: def.color + '22', border: `1px solid ${def.color}55`, color: def.color }}>
-              <span className="text-base">{def.emoji}</span>
-              <span>{def.label}</span>
+              className="w-full flex items-center gap-2 py-1.5 px-2 rounded-lg mb-1 text-xs font-bold"
+              style={{ background:def.color+'22', border:`1px solid ${def.color}55`, color:def.color }}>
+              <span className="text-base">{def.emoji}</span><span>{def.label}</span>
               <span className="ml-auto text-[10px] opacity-60">{def.desc}</span>
             </button>
           ))}
@@ -121,49 +121,32 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
         {Object.entries(GIFT_TIERS).map(([id, t]) => (
           <div key={id} className="flex items-center gap-2 text-xs mb-1">
             <span>{t.emoji}</span>
-            <div className="flex-1">
-              <span className="font-bold" style={{color:t.color}}>{t.label}</span>
-              <span className="text-gray-600 ml-1 text-[9px]">+{Math.min(t.chargeAdd,100)}% charge / +{t.force} force</span>
-            </div>
+            <div className="flex-1"><span className="font-bold" style={{color:t.color}}>{t.label}</span>
+              <span className="text-gray-600 ml-1 text-[9px]">+{Math.min(t.chargeAdd,100)}% charge</span></div>
             <span className="text-gray-600 text-[9px]">{t.coins[0]}–{t.coins[1]===Infinity?'∞':t.coins[1]}🪙</span>
           </div>
         ))}
-        <p className="text-[9px] text-gray-700 mt-2 text-center">Charging: fills bar • In-flight: forward boost!</p>
       </div>
 
-      {/* Boost queue */}
+      {/* Boosts queued */}
       {boostQueue.length > 0 && (
         <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
           <div className="text-[9px] font-bold tracking-widest text-gray-500 uppercase mb-2">⚡ Queued ({boostQueue.length})</div>
           {boostQueue.slice(-5).map((b,i) => (
             <div key={i} className="flex items-center gap-2 bg-[#0a0b14] rounded px-2 py-1 mb-1 border border-[#1e2240]">
-              <span>{b.emoji}</span>
-              <span className="text-xs font-bold flex-1" style={{color:b.color}}>{b.label}</span>
+              <span>{b.emoji}</span><span className="text-xs font-bold flex-1" style={{color:b.color}}>{b.label}</span>
               <span className="text-gray-600 text-[10px]">@{b.user}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Multipliers */}
-      {phase !== 'idle' && phase !== 'chest_pick' && (
-        <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-          <div className="text-[9px] font-bold tracking-widest text-gray-500 uppercase mb-2">⚙ Round Multipliers</div>
-          <div className="space-y-1 text-xs">
-            <div className="flex justify-between"><span className="text-yellow-400">⚡ Launch Power</span><span className="font-black text-yellow-400">{multipliers.power.toFixed(1)}×</span></div>
-            <div className="flex justify-between"><span className="text-orange-400">💣 Bombs</span><span className="font-black text-orange-400">{multipliers.bomb}</span></div>
-            <div className="flex justify-between"><span className="text-purple-400">🟡 Bouncers</span><span className="font-black text-purple-400">{multipliers.bouncer}</span></div>
-          </div>
-        </div>
-      )}
-
-      {/* Dev inject */}
       {import.meta.env.DEV && (
         <div className="space-y-1">
           {Object.entries(GIFT_TIERS).map(([id, t]) => (
-            <button key={id} onClick={() => engine.processGift(`viewer${Math.floor(Math.random()*99)}`, t.coins[0])}
+            <button key={id} onClick={() => engine.processGift(`v${Math.floor(Math.random()*99)}`, t.coins[0])}
               className="w-full text-xs border border-gray-800 rounded py-1 text-gray-600 hover:text-gray-400">
-              🧪 {t.emoji} {t.label} gift
+              🧪 {t.emoji} {t.label}
             </button>
           ))}
         </div>

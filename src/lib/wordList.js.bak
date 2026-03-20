@@ -1,0 +1,211 @@
+﻿/**
+ * StreamVibe Live Words ΓÇö Word Dictionary & Helpers
+ * ~2 000 common English words for in-game validation.
+ */
+
+const RAW = [
+  // 3-letter
+  'ace','act','add','age','ago','aid','aim','air','ale','all','and','ant','ape','arc','are','ark','arm','art','ash','ask',
+  'ate','awe','axe','aye','bad','bag','ban','bar','bat','bay','bed','bet','big','bin','bit','bog','bow','box','boy','bud',
+  'bug','bun','bus','but','buy','cab','can','cap','car','cat','cob','cod','cog','cop','cot','cow','cry','cub','cup','cut',
+  'dab','dad','dam','day','den','dew','did','dig','dim','dip','dog','dot','dry','dub','dug','dun','ear','eat','egg','ego',
+  'elf','elm','end','era','eve','ewe','eye','fan','far','fat','fax','fed','few','fig','fin','fit','fix','fly','fog','for',
+  'fox','fry','fun','fur','gap','gas','gem','get','god','got','gum','gun','gut','had','ham','has','hat','hay','her','hew',
+  'him','hip','his','hit','hog','hop','hot','how','hub','hug','hum','hut','ice','ill','imp','ink','inn','ion','ire','its',
+  'ivy','jab','jam','jar','jaw','jet','job','jog','joy','jug','jut','keg','key','kid','kin','kit','lab','lag','lap','law',
+  'lax','lay','led','leg','let','lid','lip','lit','log','low','lug','mad','man','map','mar','mat','men','met','mix','mob',
+  'mod','mom','mop','mud','mug','nab','nag','nap','net','new','nod','nor','not','now','nun','nut','oak','oar','odd','off',
+  'oil','old','orb','ore','our','out','owe','owl','own','pad','pan','pat','pay','peg','pen','pet','pie','pig','pin','pit',
+  'ply','pod','pop','pot','pro','pub','pun','pup','put','rag','ram','ran','rap','rat','ray','red','ref','rep','rut','rye',
+  'sac','sag','sap','sat','saw','say','set','sew','shy','sin','sip','sir','sit','six','ski','sky','sly','sob','sod','son',
+  'sow','spa','spy','sty','sub','sue','sum','sun','tab','tan','tap','tar','tax','tin','tip','tog','ton','too','top','toy',
+  'try','tub','tug','two','urn','use','van','vat','via','vow','war','was','wax','web','wed','wet','who','wig','win','wit',
+  'woe','wok','won','woo','yam','yew','you','zap','zen','zip',
+  // 4-letter
+  'able','ache','acid','acre','also','arch','area','army','aunt','auto','away','bake','bald','ball','band','bane','bang',
+  'bank','bare','bark','barn','base','bash','bask','bead','beam','bean','bear','beat','been','bell','belt','bend','best',
+  'bind','bird','bite','blot','blow','blue','blur','boar','boil','bold','bolt','bomb','bond','bone','boon','boot','bore',
+  'born','both','bout','bowl','brag','bran','bray','brew','brim','brow','buck','bulk','bull','bump','burn','burp','bury',
+  'bush','buzz','cage','cake','calf','call','calm','came','camp','cane','care','cart','case','cash','cast','cave','cell',
+  'chad','chai','chap','char','chat','chef','chin','chip','chop','city','clam','clap','claw','clay','clip','club','clue',
+  'coal','coat','code','coil','coin','cold','colt','come','cook','cool','cope','copy','core','corn','cost','cozy','crab',
+  'crew','crop','crow','cube','cure','curl','cute','damp','dark','dart','dash','dawn','dead','deal','dean','dear','deck',
+  'deed','deep','deer','desk','dial','dice','died','dine','dire','dirt','disc','dish','disk','dock','dome','done','door',
+  'dose','dove','down','drab','drag','draw','drip','drop','drum','dual','dude','dull','dump','dune','dusk','dust','duty',
+  'each','earn','ease','east','echo','edge','emit','epic','even','ever','evil','exam','face','fact','fade','fail','fair',
+  'fake','fall','fame','farm','fast','fate','fawn','fear','feat','feel','felt','fern','fife','file','fill','film','find',
+  'fine','fire','firm','fish','fist','flag','flat','flaw','flea','flee','flew','flip','flock','flow','foam','fond','font',
+  'food','fool','foot','fore','fork','form','fort','foul','four','free','frog','from','fuel','fume','fund','fuse','fuss',
+  'gale','gall','game','gang','gave','gaze','gear','give','glad','glow','glue','gnaw','goat','gold','golf','gone','gore',
+  'gown','grab','gram','gray','grim','grin','grip','grew','grit','grow','gulf','gust','gust','hack','hail','hair','half',
+  'hall','halt','hand','hang','hard','hare','harm','harp','hash','haul','have','haze','head','heal','heap','heat','heel',
+  'held','helm','hemp','herd','hero','hide','high','hill','hire','hold','hole','home','hone','hook','hoop','horn','hose',
+  'host','hour','howl','hull','hunt','hurl','hurt','hymn','icon','idea','idle','inch','into','iron','isle','item','jade',
+  'jail','jerk','jest','join','joke','jolt','jump','junk','jury','just','keen','keep','kill','kind','king','knob','knot',
+  'know','lack','lady','laid','lake','lamb','lamp','land','lane','lark','lash','last','late','laud','lava','lead','leaf',
+  'lean','leap','lend','lens','liar','lick','like','lime','line','lion','list','live','load','loaf','loan','lock','loft',
+  'lone','long','loom','loop','lore','lore','lorn','lose','lore','lost','loud','love','luck','lull','lure','lust','lute',
+  'made','maid','mail','main','make','male','mall','mane','many','mark','mars','mast','mate','maze','meal','mean','meet',
+  'melt','memo','mere','mesh','mice','mild','mile','mill','mine','mint','miss','mist','mode','mole','moor','more','moss',
+  'most','moth','move','much','mule','muse','must','myth','nail','name','nape','navy','near','neck','need','nest','next',
+  'nice','nine','node','nook','noon','nose','note','noun','nova','null','obey','once','only','open','oval','over','oven',
+  'pace','pack','pact','page','pain','pair','pale','palm','park','part','pass','past','pave','peak','peel','peer','pelt',
+  'perk','perm','pest','pick','pile','pill','pink','pipe','plan','play','plea','plow','ploy','plum','plus','poem','poet',
+  'pole','poll','pond','pool','poor','pore','pork','port','pose','post','pour','pray','prep','prey','puff','pull','pump',
+  'pure','push','quit','quiz','race','rack','raft','rage','raid','rain','rake','ramp','rank','rant','rare','read','real',
+  'reap','reed','reel','rely','rent','rest','rice','rich','ride','ring','rink','riot','rise','risk','road','roam','roar',
+  'robe','rock','rode','role','roll','roof','room','root','rope','rose','ruin','rule','rush','safe','sage','sake','sale',
+  'salt','same','sand','sane','sang','sank','save','seal','seam','seat','seed','seek','seem','seep','self','send','sent',
+  'shed','ship','shoe','shop','shot','show','shut','side','sigh','sign','silk','sill','silo','silt','sing','sink','site',
+  'size','skin','skip','slab','slap','slid','slim','slip','slit','slob','slop','slot','slow','slum','snap','snob','snug',
+  'sock','soft','soil','sole','some','song','soon','soot','sore','sort','soul','sour','span','spin','spit','spot','spur',
+  'stab','stag','star','stay','stem','step','stew','stir','stop','stub','stud','stun','sued','suit','sunk','sure','swap',
+  'swam','sway','swim','swum','tail','talk','tall','tame','tang','task','taut','team','tear','tell','tend','tent','term',
+  'test','than','that','them','then','this','thus','tick','tide','tied','tier','tile','till','tilt','time','tire','toad',
+  'told','toll','tomb','tome','tone','took','tore','torn','toss','tour','town','tram','trap','tree','trio','trip','trod',
+  'trot','true','tube','tune','turf','turn','tusk','twin','type','ugly','undo','unit','upon','urge','used','vain','vale',
+  'vane','vast','veil','vein','very','vest','view','vile','vine','visa','void','volt','vote','wade','wage','wake','walk',
+  'wall','wand','wane','ward','warm','warn','warp','wash','wave','weak','wear','week','well','went','were','west','whip',
+  'wide','wife','wild','will','wine','wing','wire','wise','wish','with','wolf','wood','wool','word','wore','work','worm',
+  'worn','wrap','wren','yard','year','yell','your','zone','zoom',
+  // 5-letter
+  'abbey','abort','above','abuse','abyss','acute','adore','adult','after','again','agate','agree','ahead','alike','alien',
+  'align','alive','allay','aloft','alone','along','alter','angel','anger','angle','ankle','annex','antic','anvil','apart',
+  'apple','apply','apron','aptly','ardor','arena','argue','arise','armor','aroma','arose','array','arson','aside','asset',
+  'attic','audio','avail','avert','avid','awake','award','aware','awful','badly','baker','basic','basis','batch','beach',
+  'beard','beast','began','begin','being','below','bench','berry','birth','bison','black','blade','blame','bland','blank',
+  'blaze','bleak','blend','bless','block','blood','bloom','blown','blunt','board','boost','bound','brake','brand','brave',
+  'break','breed','brick','bride','brief','bring','brisk','brood','brook','brush','buddy','build','built','bulge','burst',
+  'cabin','cache','camel','canal','candy','cargo','carry','catch','cause','cease','chair','chaos','charm','chase','cheap',
+  'cheat','check','cheek','chess','chest','chief','child','china','choir','chord','chore','chose','churn','civil','claim',
+  'class','claw','clean','clear','clerk','click','cliff','climb','cling','clock','clone','close','cloth','cloud','coach',
+  'coast','color','comet','comic','comma','coral','could','count','court','cover','craft','crane','crash','crazy','creak',
+  'creek','crest','crime','cross','cruel','crush','crust','curly','curve','cycle','dance','daunt','death','debut','decry',
+  'delay','delta','dense','depot','depth','devil','disco','dodge','doing','doubt','dough','draft','drain','drama','drank',
+  'dread','dream','dress','dried','drift','drink','drive','drool','drove','drown','dryer','eager','eagle','early','earth',
+  'edify','eject','elect','elite','empty','enact','enjoy','enter','entry','envoy','equal','error','essay','evade','event',
+  'exact','exert','extra','fable','facet','faith','false','fancy','fatal','fault','feast','fetch','fever','fiber','field',
+  'fifth','fifty','fight','final','first','fixed','flame','flare','flash','fleet','flesh','flick','fling','flint','float',
+  'flood','floor','flora','flour','flown','flute','foray','force','forge','found','frame','frank','fraud','fresh','front',
+  'frost','froze','funny','giant','given','gland','glare','glass','gleam','globe','gloom','glory','gloss','glove','going',
+  'grace','grade','grain','grand','graze','great','greed','green','greet','grief','grill','grind','groan','gross','group',
+  'grove','gruel','gruff','guard','guess','guest','guide','guilt','guise','gusto','handy','happy','harsh','haunt','haven',
+  'heart','heavy','heist','herbs','herds','hinge','hoops','horse','hotel','hound','house','hover','human','humor','hunch',
+  'ideal','image','imply','incur','infer','inner','input','issue','ivory','jewel','judge','juice','juicy','knack','kneel',
+  'knife','knock','label','large','laser','later','latch','laugh','layer','learn','least','leave','legal','lemon','level',
+  'light','limit','linen','liner','linger','lithe','live','liver','local','lodge','logic','lucky','lunar','lying','magic',
+  'major','maker','manor','march','marry','match','mercy','metal','might','minor','miser','model','money','month','moose',
+  'mount','mourn','mouth','movie','muddy','music','naive','nerve','never','night','noble','noise','north','noted','novel',
+  'nurse','nymph','ocean','offer','often','olive','onset','other','outer','owner','oxide','ozone','paint','paper','party',
+  'patch','pause','peace','pearl','pedal','penny','perch','phase','phone','photo','piano','pitch','pixel','pizza','place',
+  'plain','plane','plant','plate','plaza','plead','pluck','point','poker','polar','power','price','pride','prime','print',
+  'prior','prize','probe','prone','proof','prose','proud','prove','prowl','prune','psalm','pulse','pupil','purse','queen',
+  'query','quest','quick','quiet','quota','quote','rabbi','radio','raise','ranch','range','rapid','ratio','reach','ready',
+  'rebel','refer','reign','relax','repay','repel','reply','rider','rifle','right','risky','rival','river','rocky','rouge',
+  'rough','round','route','rover','royal','rumor','rural','rusty','sadly','saint','scale','scare','scene','scope','score',
+  'scout','screw','seize','sense','serve','seven','shade','shall','shame','shape','share','sharp','shear','shelf','shell',
+  'shift','shirt','shock','short','shout','sight','silly','since','sixth','skill','skull','slash','slave','sleep','sleet',
+  'sleek','slide','slope','smart','smash','smell','smile','smoke','snake','snare','sneak','solar','solid','solve','sorry',
+  'sound','south','space','spare','spark','spawn','speak','spear','speed','spell','spend','spent','spice','spill','spine',
+  'spite','spoil','spoke','spore','sport','spout','spray','squad','squat','stack','staff','stage','stain','stale','stall',
+  'stand','stare','stark','start','state','steal','steel','steep','steer','stick','stiff','still','stock','stone','stood',
+  'store','storm','story','strap','stray','strip','strive','strut','stuck','study','stuff','stump','style','sugar','sunny',
+  'super','surge','swamp','swear','sweep','sweet','swept','swift','sword','table','talon','taste','teach','teeth','tempo',
+  'tense','tenth','thank','thick','thing','think','third','those','three','threw','throw','thump','tight','timer','tired',
+  'title','today','token','tooth','topic','total','touch','tough','tower','trace','track','trade','trail','train','trait',
+  'tramp','traps','trash','trawl','tread','treat','trend','trial','tribe','trick','tried','troop','trout','truce','truly',
+  'trump','trunk','trust','truth','tumor','tunic','twist','unify','union','unity','until','upper','urban','usage','usual',
+  'utter','valid','valor','value','vault','vigor','viral','viral','virus','visit','vista','vital','vivid','voice','voter',
+  'waste','watch','water','weary','weave','weigh','whale','wheat','wheel','where','which','while','white','whole','whose',
+  'width','woman','women','world','worry','worse','worst','worth','would','wound','wrath','write','wrong','yacht','yearn',
+  'young','youth',
+  // 6-letter
+  'abrupt','absent','absorb','accent','across','active','actual','adjust','admire','advert','affect','afford','afraid',
+  'agency','agenda','almost','always','amount','animal','annual','answer','appeal','appear','arrest','arrive','aspect',
+  'attach','attack','attend','attest','aurora','author','autumn','barely','battle','beacon','beauty','became','before',
+  'belong','better','beyond','blight','bottom','bounce','breach','breath','bright','broken','broker','brutal','budget',
+  'bundle','burden','button','camera','cancel','cannot','carpet','castle','caught','center','change','charge','choose',
+  'chosen','circle','circus','client','closed','closet','coffee','column','combat','comedy','coming','commit','corner',
+  'cotton','couple','course','cousin','create','credit','crisis','critic','crucial','custom','damage','danger','darker',
+  'debate','decide','defend','define','delete','demand','denial','depart','depend','desert','design','detail','dinner',
+  'direct','divide','doctor','double','driven','during','earned','effect','effort','either','employ','enable','ending',
+  'energy','engine','enough','ensure','equity','escape','estate','evenly','expand','expect','expert','expose','extend',
+  'fabric','factor','failed','family','famous','father','figure','filter','finger','firmly','finish','flight','follow',
+  'forget','formal','formula','foster','friend','frozen','future','garden','gather','gentle','gifted','golden','gossip',
+  'govern','growth','harbor','hatred','health','highly','hollow','honest','horror','hunter','impact','import','income',
+  'indeed','intent','island','jacket','junior','kernel','lagoon','launch','leader','lessen','letter','lesson','liquid',
+  'listen','little','lively','locate','locked','longer','losing','lotion','lovely','lowest','lyrics','manage','manner',
+  'market','master','matter','method','mirror','mobile','modern','moment','mostly','mother','motion','moving','muscle',
+  'myself','narrow','native','nature','nearly','needed','neither','nephew','normal','notice','number','object','obtain',
+  'office','online','oppose','option','orange','origin','orphan','output','palace','parent','passion','patent','patrol',
+  'payment','people','period','permit','person','phrase','pillar','pioneer','player','please','pledge','plenty','pocket',
+  'poison','policy','portal','potato','prefer','pretty','prison','profit','proper','protect','public','purify','puzzle',
+  'random','reason','record','reduce','reform','refuse','region','reject','remain','repair','result','return','reveal',
+  'reward','ribbon','rising','robust','rocket','rubber','saddle','sample','screen','search','second','secret','select',
+  'signal','silent','silver','simple','single','sister','sketch','slight','silver','smooth','solar','source','speech',
+  'spirit','spring','square','stable','statue','status','steady','strain','street','strict','strike','string','strong',
+  'strung','struck','stupid','submit','summer','supply','surely','survey','switch','symbol','system','talent','target',
+  'temple','tender','tested','thirst','though','threat','ticket','timber','tissue','tongue','toward','travel','treaty',
+  'triple','trophy','tunnel','typing','uneven','unique','unless','update','uphold','urgent','useful','vacuum','vessel',
+  'victim','vision','volume','wander','wealth','weapon','winter','wonder','worker','yellow',
+];
+
+const WORD_SET = new Set(RAW.map(w => w.toLowerCase()));
+
+/** Is this a valid dictionary word? */
+export function isValidWord(word) {
+  return WORD_SET.has(word.toLowerCase());
+}
+
+/**
+ * Can `word` be formed from the given `letters` array?
+ * Each letter can be used at most once.
+ */
+export function canFormWord(word, letters) {
+  const pool = letters.map(l => l.toLowerCase());
+  for (const ch of word.toLowerCase()) {
+    const idx = pool.indexOf(ch);
+    if (idx === -1) return false;
+    pool.splice(idx, 1);
+  }
+  return true;
+}
+
+/** Returns all valid words that can be formed from `letters` */
+export function findAllWords(letters) {
+  return RAW.filter(w => w.length >= 3 && canFormWord(w, letters));
+}
+
+/** Score a word: length-based points */
+export function scoreWord(word) {
+  const len = word.length;
+  if (len <= 3) return 1;
+  if (len === 4) return 2;
+  if (len === 5) return 4;
+  if (len === 6) return 6;
+  return 10;
+}
+
+// Curated 6ΓÇô7 letter seed words (guarantee a playable round)
+const SEED_WORDS = [
+  'STREAM','BRIDGE','PLANET','FRIEND','CASTLE','DRAGON','GARDEN','BRIGHT','WONDER',
+  'SILVER','GOLDEN','MASTER','HUNTER','WINTER','SPRING','SUMMER','AUTUMN','FOREST',
+  'BATTLE','KNIGHT','DESERT','ROCKET','CANDLE','JUNGLE','SIMPLE','GENTLE','PLENTY',
+  'BROKEN','HONEST','LATEST','FROZEN','TENDER','MONKEY','MARBLE','PUDDLE','CIRCLE',
+  'FLIGHT','ISLAND','TRAVEL','GRAVEL','CANVAS','WISDOM','FLOWER','CORNER','DINNER',
+  'BOTTLE','BUTTON','HUNGER','SMOOTH','GROWTH','FABRIC','LIQUID','VIOLET','COTTON',
+  'BANNER','RANSOM','SIMPLE','CRADLE','BANTER','SAMPLE','LIVELY','STABLE','CREDIT',
+];
+
+/**
+ * Generate a new set of letters for a round.
+ * Returns { letters: string[], seedWord: string, possibleWords: string[] }
+ */
+export function generateLetterSet() {
+  const seedWord = SEED_WORDS[Math.floor(Math.random() * SEED_WORDS.length)];
+  const letters  = seedWord.split('').sort(() => Math.random() - 0.5);
+  const possible = findAllWords(letters);
+  return { letters, seedWord, possibleWords: possible };
+}
+
+export default WORD_SET;
