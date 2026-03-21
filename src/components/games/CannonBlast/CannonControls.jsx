@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
-import { GIFT_TIERS, CHEST_TYPES } from '@/hooks/useCannonEngine';
+import { GIFT_TIERS } from '@/hooks/useCannonEngine';
 
 export default function CannonControls({ engine, tiktok, connError, onClearError, overlayUrl }) {
-  const { phase, fuelsLeft, multipliers, boostQueue, leaderboard,
-          startRound, refire, manualFire, reset, pickChest } = engine;
+  const { phase, multipliers, chargeLevel, recentGifts,
+          auctionPhase, auctionBids, auctionWinner,
+          startNewRound, endAuction, manualLaunch, resetRound } = engine;
   const { status, connect, disconnect, username: connUser } = tiktok;
   const [usernameInput, setUsernameInput] = useState('');
   const [copied, setCopied] = useState(false);
-
-  const canStart   = phase === 'idle' || phase === 'landed';
-  const canRefire  = phase === 'landed' && fuelsLeft > 0;
-  const isActive   = phase === 'charging' || phase === 'in_flight' || phase === 'rolling';
+  const [overlayCopied, setOverlayCopied] = useState(false);
 
   const statusDot = {
     disconnected:'bg-gray-600', connecting:'bg-orange-500 animate-pulse',
@@ -18,137 +16,157 @@ export default function CannonControls({ engine, tiktok, connError, onClearError
   }[status] ?? 'bg-gray-600';
 
   const phaseLabel = {
-    idle:'⏳ IDLE', chest_pick:'🎁 PICK CHESTS',
+    idle:'⏳ IDLE', auction:'🏆 AUCTION', chest_pick:'🎁 PICK CHEST',
     charging:'⚡ CHARGING', in_flight:'🚀 IN FLIGHT',
     rolling:'🏃 ROLLING!', landed:'🏁 LANDED',
   }[phase] ?? phase;
-  const phaseColor = {
-    charging:'text-orange-400', in_flight:'text-blue-400',
-    rolling:'text-green-400', landed:'text-yellow-400', chest_pick:'text-purple-400',
-  }[phase] ?? 'text-gray-400';
 
-  const isWaitingLive = status === 'connecting' && !!connUser;
+  const copyOverlay = () => {
+    if (!overlayUrl) return;
+    navigator.clipboard.writeText(overlayUrl);
+    setOverlayCopied(true);
+    setTimeout(() => setOverlayCopied(false), 2000);
+  };
+
+  const topBidder = Object.entries(auctionBids).sort((a,b)=>b[1]-a[1])[0];
 
   return (
-    <div className="flex flex-col gap-3 p-4 overflow-y-auto h-full">
+    <div className="p-4 space-y-4">
+      {/* Phase */}
+      <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240]">
+        <div className="text-xs text-gray-500 mb-1">PHASE</div>
+        <div className="font-black text-lg text-white">{phaseLabel}</div>
+        {multipliers.power > 1 && (
+          <div className="text-xs text-orange-400 mt-1">⚡ Power ×{multipliers.power.toFixed(1)}</div>
+        )}
+        {multipliers.bomb > 0 && (
+          <div className="text-xs text-red-400">💣 {multipliers.bomb} bombs placed</div>
+        )}
+        {multipliers.bouncer > 0 && (
+          <div className="text-xs text-yellow-400">🟡 {multipliers.bouncer} springs placed</div>
+        )}
+      </div>
 
-      {/* Overlay */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-        <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-2">🖥 Overlay</p>
-        <div className="flex gap-2">
-          <button onClick={() => overlayUrl && window.open(overlayUrl,'_blank')} disabled={!overlayUrl}
-            className="flex-1 py-1.5 rounded-lg border border-[#1e2240] bg-[#0a0b14] text-cyan-400 hover:border-cyan-600 font-mono text-xs font-bold disabled:opacity-40">
-            🖥 Preview
-          </button>
-          <button onClick={() => { navigator.clipboard.writeText(overlayUrl); setCopied(true); setTimeout(()=>setCopied(false),2000); }} disabled={!overlayUrl}
-            className="flex-1 py-1.5 rounded-lg border border-[#1e2240] bg-[#0a0b14] text-gray-400 font-mono text-xs font-bold disabled:opacity-40">
-            {copied ? '✓' : '📋'}
-          </button>
+      {/* TikTok connection */}
+      <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240] space-y-2">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${statusDot}`}/>
+          <span className="text-xs font-black text-gray-400 uppercase tracking-wider">TikTok Live</span>
         </div>
-        <p className="text-[9px] text-gray-700 mt-1.5 leading-relaxed">
-          Add as Browser Source · <span className="text-cyan-800">1080×1920px (9:16 portrait)</span> · TikTok recommended
-        </p>
-      </div>
-
-      {/* Status */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3 text-center">
-        <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Status</div>
-        <div className={`font-black text-sm ${phaseColor}`}>{phaseLabel}</div>
-      </div>
-
-      {/* TikTok connect */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-        <button onClick={()=>{ if(status==='connected'||isWaitingLive){disconnect();}else if(usernameInput.trim()){connect(usernameInput.trim());}}}
-          className={`w-full py-2.5 rounded-lg font-mono font-black text-xs tracking-widest flex items-center justify-center gap-2 transition-all
-            ${status==='connected'?'bg-gray-700 text-gray-400':isWaitingLive?'bg-yellow-900/40 text-yellow-300 border border-yellow-800':'bg-gradient-to-r from-cyan-500 to-blue-500 text-black'}`}>
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${statusDot}`}/>
-          {status==='connected'?`@${connUser} — Disconnect`:isWaitingLive?`⏳ Waiting for @${connUser} to go LIVE... — Cancel`:status==='connecting'?'CONNECTING…':'♪ CONNECT MY LIVE'}
-        </button>
-        {isWaitingLive && <p className="text-[10px] text-yellow-600 text-center mt-2">Bridge is monitoring — connects automatically when live</p>}
-        {(status==='disconnected'||status==='error') && (
-          <input value={usernameInput} onChange={e=>setUsernameInput(e.target.value)}
-            onKeyDown={e=>e.key==='Enter'&&usernameInput.trim()&&connect(usernameInput.trim())}
-            placeholder="@yourtiktokusername"
-            className="mt-2 w-full bg-[#0a0b14] border border-[#1e2240] rounded-lg px-3 py-1.5 text-white placeholder:text-gray-600 font-semibold focus:border-cyan-500 outline-none text-sm"/>
-        )}
-        {connError && <p className="text-[10px] text-red-500 mt-2 text-center">{connError}</p>}
-      </div>
-
-      {/* Action buttons */}
-      <div className="space-y-2">
-        {canStart && (
-          <button onClick={()=>startRound('host')}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white font-mono font-black text-sm tracking-widest">
-            🎁 NEW ROUND
-          </button>
-        )}
-        {canRefire && (
-          <button onClick={()=>refire('host')}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 text-white font-mono font-black text-sm tracking-widest">
-            🔥 REFIRE ({fuelsLeft} left)
-          </button>
-        )}
-        {phase === 'charging' && (
-          <button onClick={manualFire}
-            className="w-full py-2.5 rounded-xl bg-gradient-to-r from-yellow-500 to-orange-500 text-black font-mono font-black text-sm tracking-widest">
-            💥 FIRE NOW
-          </button>
-        )}
-        <button onClick={reset}
-          className="w-full py-2 rounded-xl bg-[#0a0b14] border border-[#1e2240] text-gray-500 font-mono font-black text-xs tracking-widest">
-          ↺ RESET
-        </button>
-      </div>
-
-      {/* Chest quick-pick */}
-      {phase === 'chest_pick' && (
-        <div className="bg-[#151828] border border-purple-900 rounded-xl p-3">
-          <div className="text-[9px] font-bold tracking-widest text-purple-400 uppercase mb-2">🎁 QUICK PICK</div>
-          {Object.entries(CHEST_TYPES).map(([type, def]) => (
-            <button key={type} onClick={() => pickChest(type)}
-              className="w-full flex items-center gap-2 py-1.5 px-2 rounded-lg mb-1 text-xs font-bold"
-              style={{ background:def.color+'22', border:`1px solid ${def.color}55`, color:def.color }}>
-              <span className="text-base">{def.emoji}</span><span>{def.label}</span>
-              <span className="ml-auto text-[10px] opacity-60">{def.desc}</span>
+        {status === 'connected' ? (
+          <div className="space-y-1">
+            <div className="text-xs text-green-400">✅ Live: @{connUser}</div>
+            <button onClick={disconnect} className="w-full text-xs bg-red-900/30 border border-red-800 text-red-400 rounded-lg py-1.5 hover:bg-red-900/50">
+              Disconnect
             </button>
-          ))}
-        </div>
-      )}
-
-      {/* Gift tier guide */}
-      <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-        <div className="text-[9px] font-bold tracking-widest text-gray-500 uppercase mb-2">🎁 Gift Effects</div>
-        {Object.entries(GIFT_TIERS).map(([id, t]) => (
-          <div key={id} className="flex items-center gap-2 text-xs mb-1">
-            <span>{t.emoji}</span>
-            <div className="flex-1"><span className="font-bold" style={{color:t.color}}>{t.label}</span>
-              <span className="text-gray-600 ml-1 text-[9px]">+{Math.min(t.chargeAdd,100)}% charge</span></div>
-            <span className="text-gray-600 text-[9px]">{t.coins[0]}–{t.coins[1]===Infinity?'∞':t.coins[1]}🪙</span>
           </div>
-        ))}
+        ) : (
+          <div className="space-y-1.5">
+            <input value={usernameInput} onChange={e=>setUsernameInput(e.target.value)}
+              placeholder="@TikTok username"
+              className="w-full bg-[#0a0b14] border border-[#2a3060] rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 outline-none focus:border-[#4455aa]"
+              onKeyDown={e=>{ if(e.key==='Enter'&&usernameInput.trim()) connect(usernameInput.trim()); }}/>
+            <button onClick={()=>connect(usernameInput.trim())}
+              disabled={!usernameInput.trim()||status==='connecting'}
+              className="w-full text-sm font-black bg-[#1e3a1e] border border-[#2a5a2a] text-green-400 rounded-lg py-2 hover:bg-[#243e24] disabled:opacity-40">
+              {status==='connecting'?'⏳ Connecting...':'🔴 Go Live'}
+            </button>
+          </div>
+        )}
+        {connError && (
+          <div className="text-xs text-red-400 bg-red-900/20 rounded-lg p-2">
+            ⚠ {connError}
+            <button onClick={onClearError} className="ml-2 text-gray-500 hover:text-white">✕</button>
+          </div>
+        )}
       </div>
 
-      {/* Boosts queued */}
-      {boostQueue.length > 0 && (
-        <div className="bg-[#151828] border border-[#1e2240] rounded-xl p-3">
-          <div className="text-[9px] font-bold tracking-widest text-gray-500 uppercase mb-2">⚡ Queued ({boostQueue.length})</div>
-          {boostQueue.slice(-5).map((b,i) => (
-            <div key={i} className="flex items-center gap-2 bg-[#0a0b14] rounded px-2 py-1 mb-1 border border-[#1e2240]">
-              <span>{b.emoji}</span><span className="text-xs font-bold flex-1" style={{color:b.color}}>{b.label}</span>
-              <span className="text-gray-600 text-[10px]">@{b.user}</span>
+      {/* Game controls */}
+      <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240] space-y-2">
+        <div className="text-xs text-gray-500 mb-1 font-black tracking-wider">CONTROLS</div>
+        {(phase === 'idle' || phase === 'landed') && (
+          <button onClick={startNewRound}
+            className="w-full text-sm font-black bg-green-900/40 border border-green-700 text-green-400 rounded-lg py-2 hover:bg-green-900/60">
+            🚀 Start New Round
+          </button>
+        )}
+        {phase === 'auction' && (
+          <button onClick={endAuction}
+            className="w-full text-sm font-black bg-yellow-900/40 border border-yellow-700 text-yellow-400 rounded-lg py-2 hover:bg-yellow-900/60">
+            🏆 End Auction → Pick Chest
+          </button>
+        )}
+        {phase === 'charging' && chargeLevel >= 25 && (
+          <button onClick={manualLaunch}
+            className="w-full text-sm font-black bg-orange-900/40 border border-orange-600 text-orange-400 rounded-lg py-2 hover:bg-orange-900/60">
+            💥 LAUNCH! ({Math.round(chargeLevel)}% charge)
+          </button>
+        )}
+        {(phase !== 'idle') && (
+          <button onClick={resetRound}
+            className="w-full text-xs bg-gray-900/40 border border-gray-700 text-gray-500 rounded-lg py-1.5 hover:text-gray-300">
+            ↺ Reset Round
+          </button>
+        )}
+      </div>
+
+      {/* Auction leaderboard */}
+      {phase === 'auction' && Object.keys(auctionBids).length > 0 && (
+        <div className="bg-[#0d0e1a] rounded-xl p-3 border border-yellow-800/40 space-y-1">
+          <div className="text-xs text-yellow-400 font-black tracking-wider mb-2">🏆 AUCTION BIDS</div>
+          {Object.entries(auctionBids).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([u,c],i)=>(
+            <div key={u} className="flex items-center gap-2 text-sm">
+              <span>{['🥇','🥈','🥉','4.','5.'][i]}</span>
+              <span className="flex-1 text-white font-bold truncate">@{u}</span>
+              <span className="text-yellow-400 font-black">{c.toLocaleString()}</span>
             </div>
           ))}
         </div>
       )}
 
-      {import.meta.env.DEV && (
-        <div className="space-y-1">
-          {Object.entries(GIFT_TIERS).map(([id, t]) => (
-            <button key={id} onClick={() => engine.processGift(`v${Math.floor(Math.random()*99)}`, t.coins[0])}
-              className="w-full text-xs border border-gray-800 rounded py-1 text-gray-600 hover:text-gray-400">
-              🧪 {t.emoji} {t.label}
-            </button>
+      {/* Recent gifts */}
+      {recentGifts && recentGifts.length > 0 && (
+        <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240] space-y-1">
+          <div className="text-xs text-gray-500 font-black tracking-wider mb-2">RECENT GIFTS</div>
+          {recentGifts.slice(0,5).map((g,i)=>(
+            <div key={g.ts} className="flex items-center gap-2 text-xs" style={{ opacity: 1 - i*0.18 }}>
+              <span>{g.tier.emoji}</span>
+              <span className="text-white font-bold flex-1 truncate">@{g.user}</span>
+              <span style={{ color: g.tier.color }} className="font-black">{g.tier.label}</span>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* Gift tier reference */}
+      <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240]">
+        <div className="text-xs text-gray-500 font-black tracking-wider mb-2">GIFT TIERS</div>
+        {Object.values(GIFT_TIERS).map(t => (
+          <div key={t.label} className="flex items-center gap-2 text-xs mb-1">
+            <span>{t.emoji}</span>
+            <span style={{ color: t.color }} className="font-black">{t.label}</span>
+            <span className="text-gray-600 flex-1 text-right">{t.coins[0].toLocaleString()}+ coins</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Overlay URL */}
+      {overlayUrl && (
+        <div className="bg-[#0d0e1a] rounded-xl p-3 border border-[#1e2240] space-y-2">
+          <div className="text-xs text-gray-500 font-black tracking-wider">🎬 OVERLAY URL</div>
+          <div className="text-xs text-gray-400 bg-[#060710] rounded-lg p-2 break-all leading-relaxed">
+            {overlayUrl}
+          </div>
+          <button onClick={copyOverlay}
+            className="w-full text-xs font-black bg-[#1e2a3e] border border-[#2a3a5a] text-blue-400 rounded-lg py-2 hover:bg-[#222f48]">
+            {overlayCopied ? '✅ Copied!' : '📋 Copy Overlay URL'}
+          </button>
+          <div className="text-xs text-gray-600 leading-relaxed">
+            <strong className="text-gray-500">TikTok Live Studios:</strong><br/>
+            Add → Browser Source → Paste URL<br/>
+            Size: 1080×1920 or 1920×1080<br/>
+            ✅ Enable Transparent Background
+          </div>
         </div>
       )}
     </div>

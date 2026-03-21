@@ -1,14 +1,11 @@
 /**
- * CannonBlastTool — Real Ball Guys: Cannon Mode
+ * CannonBlastTool v9 — Ball Guys: Cannon Mode
  * Route: /tools/games/cannon-blast
- *
- * Game flow: chest_pick → charging → in_flight → rolling → landed
- * TikTok gifts: fill chargeBar (charging) or add forward force (in_flight/rolling)
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
-import { useCannonEngine } from '@/hooks/useCannonEngine';
-import { useTikTokGameConnector } from '@/hooks/useTikTokGameConnector';
+import { useCannonEngine, CHEST_TYPES } from '@/hooks/useCannonEngine';
+import { useTikTokGameConnector }        from '@/hooks/useTikTokGameConnector';
 import CannonGame        from '@/components/games/CannonBlast/CannonGame';
 import CannonControls    from '@/components/games/CannonBlast/CannonControls';
 import CannonLeaderboard from '@/components/games/CannonBlast/CannonLeaderboard';
@@ -26,11 +23,12 @@ export default function CannonBlastTool() {
   const [overlayToken, setOverlayToken] = useState(null);
   const channelRef = useRef(null);
 
-  // ── Supabase overlay channel ────────────────────────────────────────
+  // ── Supabase overlay channel ─────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     const init = async () => {
-      const { data } = await supabase.from('profiles').select('overlay_token').eq('id', user.id).single();
+      const { data } = await supabase.from('profiles')
+        .select('overlay_token').eq('id', user.id).single();
       let token = data?.overlay_token;
       if (!token) {
         token = crypto.randomUUID();
@@ -45,30 +43,36 @@ export default function CannonBlastTool() {
     return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
   }, [user]);
 
-  // ── Broadcast game state to overlay each tick ───────────────────────
+  // ── Broadcast full state to overlay ──────────────────────────────────
   useEffect(() => {
     if (!channelRef.current || !user) return;
-    channelRef.current.send({ type: 'broadcast', event: 'state', payload: {
+    channelRef.current.send({ type:'broadcast', event:'state', payload: {
       phase:        engine.phase,
       ballWx:       engine.ballWx,
       ballWy:       engine.ballWy,
       ballRot:      engine.ballRot,
+      ballUser:     engine.ballUser,
       camWx:        engine.camWx,
       chargeLevel:  engine.chargeLevel,
       currentDist:  engine.currentDist,
       finalScore:   engine.finalScore,
       bestScore:    engine.bestScore,
       floorZone:    engine.floorZone,
-      multipliers:  engine.multipliers,
+      obstacles:    engine.obstacles,
       activeBoost:  engine.activeBoost,
-      leaderboard:  engine.leaderboard.slice(0, 5),
+      leaderboard:  engine.leaderboard.slice(0, 8),
       roundCount:   engine.roundCount,
+      auctionBids:  engine.auctionBids,
+      auctionWinner:engine.auctionWinner,
+      showChestPick:engine.showChestPick,
+      recentGifts:  engine.recentGifts,
     }});
-  }, [engine.phase, engine.ballWx, engine.chargeLevel, engine.activeBoost, engine.finalScore]);
+  }, [engine.phase, engine.ballWx, engine.chargeLevel, engine.activeBoost,
+      engine.finalScore, engine.auctionBids, engine.showChestPick, engine.recentGifts]);
 
-  // ── TikTok gift → game action ────────────────────────────────────────
+  // ── TikTok gifts → game ──────────────────────────────────────────────
   const tiktok = useTikTokGameConnector({
-    onGift:  (user, coins) => engine.processGift(user, coins),
+    onGift:  (u, coins) => engine.processGift(u, coins),
     onChat:  () => {},
     onError: (msg) => setConnError(msg),
   });
@@ -84,32 +88,29 @@ export default function CannonBlastTool() {
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-3 border-b border-[#1e2240] bg-[#0d0e1a] flex-shrink-0">
-          <span className="text-2xl">💥</span>
+          <img src="/ballguys_icon.png" alt="Ball Guys" className="w-8 h-8 rounded-full"/>
           <div>
             <h1 className="font-black text-lg text-white leading-tight">Ball Guys: Cannon Blast</h1>
-            <p className="text-gray-500 text-xs">Gift to charge • Pick chests • Launch for distance!</p>
+            <p className="text-gray-500 text-xs">Auction → Pick chest → Gift to charge → Launch!</p>
           </div>
-          {/* Phase badge */}
           <div className="ml-auto px-3 py-1 rounded-full bg-[#1e2240] border border-[#2a3060] text-xs font-black text-gray-400">
-            {engine.phase.replace('_',' ').toUpperCase()}
+            {engine.phase.replace(/_/g,' ').toUpperCase()}
           </div>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left controls */}
+          {/* Left */}
           <div className="w-72 border-r border-[#1e2240] overflow-y-auto flex-shrink-0">
             <CannonControls engine={engine} tiktok={tiktok}
               connError={connError} onClearError={() => setConnError(null)}
               overlayUrl={overlayUrl}/>
           </div>
-
-          {/* Center game */}
-          <div className="flex-1 p-5 overflow-y-auto">
-            <CannonGame engine={engine}/>
+          {/* Center */}
+          <div className="flex-1 p-4 overflow-y-auto">
+            <CannonGame engine={{ ...engine, chestTypes: CHEST_TYPES }}/>
           </div>
-
-          {/* Right leaderboard */}
-          <div className="w-72 border-l border-[#1e2240] overflow-y-auto flex-shrink-0">
+          {/* Right */}
+          <div className="w-64 border-l border-[#1e2240] overflow-y-auto flex-shrink-0">
             <CannonLeaderboard engine={engine}/>
           </div>
         </div>

@@ -1,27 +1,28 @@
 /**
- * useCannonEngine v8 — Ball Guys accurate physics
- * Sky-based game: ball fires into sky, lands on platform, hits obstacles
- * that launch it back up. Distance = how far along platform ball travels.
+ * useCannonEngine v9 — Ball Guys: Cannon Mode
+ * - Gummy bear ball with username floating above
+ * - TikTok gifts auto-charge cannon
+ * - Auction/highest gifter picks chest for boost
+ * - Supabase Realtime broadcast for overlay
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-export const PX_PER_WU    = 9;    // pixels per world unit
-export const GRAVITY_WU   = 11;   // wu/s² — tuned so ball arcs nicely through sky
-export const FRICTION_GND = 0.985;
-export const BOUNCE_REST  = 0.25;
+export const PX_PER_WU    = 9;
+export const GRAVITY_WU   = 10.5;
+export const FRICTION_GND = 0.982;
+export const BOUNCE_REST  = 0.28;
 export const TICK_MS      = 16;
-const CAM_LERP_X          = 0.08;
-const CAM_LEAD_WU         = 12;
+const CAM_LERP_X          = 0.07;
+const CAM_LEAD_WU         = 14;
 
 export const CHARGE_MAX       = 100;
-export const CHARGE_THRESHOLD = 30;
-const CHARGE_HOLD_RATE        = 22;
-const CHARGE_DECAY_RATE       = 6;
+export const CHARGE_THRESHOLD = 25;
 
-const LAUNCH_POWER_BASE = 48;   // wu/s at 100% charge
-const LAUNCH_ANGLE_DEG  = 38;
+const LAUNCH_POWER_BASE = 52;
+const LAUNCH_ANGLE_DEG  = 40;
 const LAUNCH_RAD        = (LAUNCH_ANGLE_DEG * Math.PI) / 180;
 
+// Floor zones — colour + multiplier
 export const FLOOR_ZONES = [
   { minWx:0,   label:'1×', mult:1, color:'#22cc44' },
   { minWx:40,  label:'2×', mult:2, color:'#44ccaa' },
@@ -30,32 +31,39 @@ export const FLOOR_ZONES = [
   { minWx:180, label:'5×', mult:5, color:'#cc44aa' },
 ];
 
-export const CHEST_TYPES = {
-  power:   { emoji:'⚡', label:'Power',   color:'#ffd600', desc:'Boosts launch power', tiers:[1.5,2.0,3.0] },
-  bomb:    { emoji:'💣', label:'Bombs',   color:'#ff4444', desc:'More bombs on field', tiers:[2,4,6]       },
-  bouncer: { emoji:'🟡', label:'Springs', color:'#ffaa00', desc:'Add spring bouncers', tiers:[2,4,6]       },
-};
+// Chest types for auction winner to pick
+export const CHEST_TYPES = [
+  { id:'power',   emoji:'⚡', label:'Power Boost',   color:'#ffd600',
+    desc:'+80% launch power', applyFn: m => ({ ...m, power: (m.power||1) * 1.8 }) },
+  { id:'bombs',   emoji:'💣', label:'Bomb Field',    color:'#ff4444',
+    desc:'6 bombs on field',  applyFn: m => ({ ...m, bomb: (m.bomb||0) + 6   }) },
+  { id:'springs', emoji:'🟡', label:'Spring Park',   color:'#ffaa00',
+    desc:'5 springs on field',applyFn: m => ({ ...m, bouncer: (m.bouncer||0) + 5 }) },
+  { id:'lucky',   emoji:'🍀', label:'Lucky Shot',    color:'#44ff88',
+    desc:'Random mega boost', applyFn: m => ({ ...m, power: (m.power||1) * 2.5 }) },
+];
 
+// Gift tiers → charge amounts
 export const GIFT_TIERS = {
-  small:  { label:'Charge+',    color:'#00e5ff', chargeAdd:10,  force:4,  emoji:'💨', coins:[1,9]          },
-  medium: { label:'Big Charge!',color:'#ffd600', chargeAdd:22,  force:10, emoji:'⚡', coins:[10,99]         },
-  large:  { label:'Super!',     color:'#ff6d00', chargeAdd:38,  force:18, emoji:'🔥', coins:[100,999]       },
-  mega:   { label:'MEGA!',      color:'#ff1744', chargeAdd:70,  force:32, emoji:'💥', coins:[1000,9999]     },
-  ultra:  { label:'ULTRA!',     color:'#ea80fc', chargeAdd:999, force:55, emoji:'🌟', coins:[10000,Infinity]},
+  rose:    { label:'Rose',     color:'#ff88cc', chargeAdd:8,   force:3,  emoji:'🌹', coins:[1,4]            },
+  small:   { label:'Charge+',  color:'#00e5ff', chargeAdd:14,  force:5,  emoji:'💨', coins:[5,49]           },
+  medium:  { label:'Big!',     color:'#ffd600', chargeAdd:26,  force:12, emoji:'⚡', coins:[50,499]          },
+  large:   { label:'Super!',   color:'#ff6d00', chargeAdd:42,  force:20, emoji:'🔥', coins:[500,4999]        },
+  mega:    { label:'MEGA!',    color:'#ff1744', chargeAdd:75,  force:35, emoji:'💥', coins:[5000,49999]      },
+  ultra:   { label:'ULTRA!',   color:'#ea80fc', chargeAdd:999, force:55, emoji:'🌟', coins:[50000,Infinity]  },
 };
 export function getGiftTier(coins) {
   for (const [id,t] of Object.entries(GIFT_TIERS))
     if (coins >= t.coins[0] && coins <= t.coins[1]) return { id, ...t };
-  return { id:'small', ...GIFT_TIERS.small };
+  return { id:'rose', ...GIFT_TIERS.rose };
 }
 
 function buildObstacles(bombCount, bouncerCount) {
   const obs = []; let id = 0;
-  // Bombs sit ON the platform (wy = 0)
-  const bombPos    = [22,38,55,72,90,108,126,148,170,195];
-  const bouncePos  = [30,50,68,88,110,135,160,185];
+  const bombPos    = [20,36,52,70,88,108,128,150,172,196];
+  const bouncePos  = [28,46,64,84,106,130,156,182];
   for (let i=0; i<Math.min(bombCount, bombPos.length); i++)
-    obs.push({ id:id++, type:'bomb',    wx:bombPos[i],   wy:0, r:2.0, active:true });
+    obs.push({ id:id++, type:'bomb',    wx:bombPos[i], wy:0, r:2.2, active:true });
   for (let i=0; i<Math.min(bouncerCount, bouncePos.length); i++)
     obs.push({ id:id++, type:'bouncer', wx:bouncePos[i], wy:0, r:1.8, active:true });
   return obs;
@@ -68,333 +76,282 @@ function getFloorZone(wx) {
 }
 
 export function useCannonEngine() {
-  const [phase,        setPhase]       = useState('idle');
-  const [chestsPicked, setChestsPicked]= useState([]);
-  const [multipliers,  setMultipliers] = useState({ power:1, bomb:0, bouncer:0 });
-  const [chargeLevel,  setChargeLevel] = useState(0);
-  const [fuelsLeft,    setFuelsLeft]   = useState(1);
-  const [ballWx,       setBallWx]      = useState(0);
-  const [ballWy,       setBallWy]      = useState(0);
-  const [ballRot,      setBallRot]     = useState(0);
-  const [camWx,        setCamWx]       = useState(0);
-  const [currentDist,  setCurrentDist] = useState(0);
-  const [finalScore,   setFinalScore]  = useState(0);
-  const [bestScore,    setBestScore]   = useState(0);
-  const [obstacles,    setObstacles]   = useState([]);
-  const [explosions,   setExplosions]  = useState([]);
-  const [activeBoost,  setActiveBoost] = useState(null);
-  const [boostQueue,   setBoostQueue]  = useState([]);
-  const [leaderboard,  setLeaderboard] = useState([]);
-  const [roundCount,   setRoundCount]  = useState(0);
-  const [trajectory,   setTrajectory]  = useState([]);
-  const [floorZone,    setFloorZone]   = useState(FLOOR_ZONES[0]);
-  const [hitEffects,   setHitEffects]  = useState([]);
-  const [shooter,      setShooter]     = useState('');
+  // ── Core phase / state ───────────────────────────────────────────────
+  const [phase,        setPhase]        = useState('idle');
+  const [multipliers,  setMultipliers]  = useState({ power:1, bomb:0, bouncer:0 });
+  const [chargeLevel,  setChargeLevel]  = useState(0);
+  const [ballWx,       setBallWx]       = useState(0);
+  const [ballWy,       setBallWy]       = useState(0);
+  const [ballRot,      setBallRot]      = useState(0);
+  const [ballUser,     setBallUser]     = useState(null);  // TikTok username on ball
+  const [camWx,        setCamWx]        = useState(0);
+  const [currentDist,  setCurrentDist]  = useState(0);
+  const [finalScore,   setFinalScore]   = useState(0);
+  const [bestScore,    setBestScore]    = useState(0);
+  const [floorZone,    setFloorZone]    = useState(FLOOR_ZONES[0]);
+  const [obstacles,    setObstacles]    = useState([]);
+  const [activeBoost,  setActiveBoost]  = useState(null);
+  const [leaderboard,  setLeaderboard]  = useState([]);
+  const [roundCount,   setRoundCount]   = useState(0);
 
+  // ── Auction / gifter tracking ─────────────────────────────────────────
+  const [auctionPhase,  setAuctionPhase]  = useState(false);  // true = collecting bids
+  const [auctionBids,   setAuctionBids]   = useState({});     // { username: totalCoins }
+  const [auctionWinner, setAuctionWinner] = useState(null);   // { user, coins }
+  const [showChestPick, setShowChestPick] = useState(false);  // winner is picking
+  const [recentGifts,   setRecentGifts]   = useState([]);     // last 8 gifts for feed
+
+  // ── Physics refs ─────────────────────────────────────────────────────
+  const vxRef      = useRef(0);
+  const vyRef      = useRef(0);
   const phaseRef   = useRef('idle');
-  const posRef     = useRef({ wx:0, wy:0 });
-  const velRef     = useRef({ wx:0, wy:0 });
-  const camRef     = useRef(0);
-  const rotRef     = useRef(0);
-  const chargeRef  = useRef(0);
-  const holdingRef = useRef(false);
-  const fuelsRef   = useRef(1);
-  const multRef    = useRef({ power:1, bomb:0, bouncer:0 });
+  const tickRef    = useRef(null);
   const obsRef     = useRef([]);
-  const timerRef   = useRef(null);
-  const shooterRef = useRef('host');
-  const bestRef    = useRef(0);
-  const boostRef   = useRef([]);
-  const hefRef     = useRef(0);
-  const fireBallRef   = useRef(null);
-  const updateTickRef = useRef(null);
+  const chargeRef  = useRef(0);
+  const multRef    = useRef({ power:1, bomb:0, bouncer:0 });
 
-  const stopAll = useCallback(() => {
-    clearInterval(timerRef.current); timerRef.current = null;
+  const syncPhase = (p) => { phaseRef.current = p; setPhase(p); };
+
+  // ── Start auction (streamer triggers or auto at round start) ──────────
+  const startAuction = useCallback(() => {
+    setAuctionPhase(true);
+    setAuctionBids({});
+    setAuctionWinner(null);
+    setShowChestPick(false);
+    syncPhase('auction');
   }, []);
 
-  const computeTrajectory = useCallback((chargeAmt, multPower) => {
-    const pct = chargeAmt / CHARGE_MAX;
-    const speed = LAUNCH_POWER_BASE * multPower * pct;
-    const vx0 = speed * Math.cos(LAUNCH_RAD);
-    const vy0 = speed * Math.sin(LAUNCH_RAD);
-    const pts = []; const dt = 0.05;
-    let wx=0, wy=0, vx=vx0, vy=vy0;
-    for (let t=0; t<6.0; t+=dt) {
-      pts.push({ wx, wy });
-      vy -= GRAVITY_WU * dt; wx += vx * dt; wy += vy * dt;
-      if (wy < 0 && t > 0.1) { pts.push({ wx, wy:0 }); break; }
-    }
-    setTrajectory(pts);
-  }, []);
-
-  const pickChest = useCallback((chestType) => {
-    if (phaseRef.current !== 'chest_pick') return;
-    setChestsPicked(prev => {
-      if (prev.length >= 3) return prev;
-      const next = [...prev, chestType];
-      if (next.length === 3) {
-        const m = { power:1, bomb:2, bouncer:2 };
-        next.forEach(t => {
-          const tier = Math.floor(Math.random() * 3);
-          if (t === 'power')   m.power    = CHEST_TYPES.power.tiers[tier];
-          if (t === 'bomb')    m.bomb    += CHEST_TYPES.bomb.tiers[tier];
-          if (t === 'bouncer') m.bouncer += CHEST_TYPES.bouncer.tiers[tier];
-        });
-        multRef.current = m;
-        setMultipliers(m);
-        const obs = buildObstacles(m.bomb, m.bouncer);
-        obsRef.current = obs; setObstacles(obs);
-        setTimeout(() => {
-          setPhase('charging'); phaseRef.current = 'charging';
-          computeTrajectory(0, m.power);
-          stopAll();
-          timerRef.current = updateTickRef.current?.(shooterRef.current);
-        }, 600);
+  // ── End auction, pick winner ──────────────────────────────────────────
+  const endAuction = useCallback(() => {
+    setAuctionBids(prev => {
+      const entries = Object.entries(prev);
+      if (entries.length === 0) {
+        setAuctionPhase(false);
+        syncPhase('charging');
+        return prev;
       }
+      entries.sort((a,b)=>b[1]-a[1]);
+      const [user, coins] = entries[0];
+      setAuctionWinner({ user, coins });
+      setShowChestPick(true);
+      setAuctionPhase(false);
+      syncPhase('chest_pick');
+      return prev;
+    });
+  }, []);
+
+  // ── Winner picks a chest ──────────────────────────────────────────────
+  const pickChest = useCallback((chestId) => {
+    const chest = CHEST_TYPES.find(c => c.id === chestId);
+    if (!chest) return;
+    setMultipliers(prev => {
+      const next = chest.applyFn(prev);
+      multRef.current = next;
       return next;
     });
-  }, [computeTrajectory, stopAll]);
+    setActiveBoost({ emoji: chest.emoji, label: chest.label, color: chest.color, user: auctionWinner?.user });
+    setTimeout(() => setActiveBoost(null), 4000);
+    setShowChestPick(false);
+    syncPhase('charging');
+  }, [auctionWinner]);
 
-  const startHold = useCallback(() => {
-    if (phaseRef.current !== 'charging') return;
-    holdingRef.current = true;
-  }, []);
+  // ── Process incoming TikTok gift ──────────────────────────────────────
+  const processGift = useCallback((username, coins) => {
+    const tier = getGiftTier(coins);
 
-  const endHold = useCallback(() => {
-    holdingRef.current = false;
-    if (phaseRef.current === 'charging' && chargeRef.current >= CHARGE_THRESHOLD)
-      fireBallRef.current?.();
-  }, []);
+    // Add to auction bids if auction is open
+    if (phaseRef.current === 'auction') {
+      setAuctionBids(prev => ({ ...prev, [username]: (prev[username]||0) + coins }));
+    }
 
-  const fireBall = useCallback(() => {
-    if (phaseRef.current !== 'charging') return;
-    if (chargeRef.current < CHARGE_THRESHOLD) return;
-    stopAll();
-    const pct = chargeRef.current / CHARGE_MAX;
-    const speed = LAUNCH_POWER_BASE * multRef.current.power * pct;
-    velRef.current = { wx: speed * Math.cos(LAUNCH_RAD), wy: speed * Math.sin(LAUNCH_RAD) };
-    posRef.current = { wx:0, wy:0 };
-    rotRef.current = 0; camRef.current = 0;
-    setPhase('in_flight'); phaseRef.current = 'in_flight';
-    setRoundCount(n => n+1);
-    setTrajectory([]); setExplosions([]); setHitEffects([]);
-    timerRef.current = updateTickRef.current?.(shooterRef.current);
-  }, [stopAll]);
+    // Always add to recent gifts feed
+    setRecentGifts(prev => [
+      { user: username, tier, ts: Date.now() },
+      ...prev.slice(0, 7)
+    ]);
 
-  useEffect(() => { fireBallRef.current = fireBall; }, [fireBall]);
-
-  const updateTick = useCallback((currentShooter) => {
-    const dt = TICK_MS / 1000;
-    return setInterval(() => {
-      const p = phaseRef.current;
-
-      if (p === 'charging') {
-        let c = chargeRef.current;
-        if (holdingRef.current) c = Math.min(CHARGE_MAX, c + CHARGE_HOLD_RATE * dt);
-        else                    c = Math.max(0, c - CHARGE_DECAY_RATE * dt);
-        chargeRef.current = c;
-        setChargeLevel(c);
-        computeTrajectory(c, multRef.current.power);
-        if (c >= CHARGE_MAX) fireBallRef.current?.();
-        return;
+    // During charging: add to charge bar
+    if (phaseRef.current === 'charging') {
+      chargeRef.current = Math.min(CHARGE_MAX, chargeRef.current + tier.chargeAdd);
+      setChargeLevel(chargeRef.current);
+      // If full → auto-launch
+      if (chargeRef.current >= CHARGE_MAX) {
+        chargeRef.current = CHARGE_MAX;
+        setChargeLevel(CHARGE_MAX);
+        setTimeout(() => launch(username), 300);
       }
+    }
 
-      if (p !== 'in_flight' && p !== 'rolling') return;
+    // During flight/rolling: forward boost
+    if (phaseRef.current === 'in_flight' || phaseRef.current === 'rolling') {
+      vxRef.current += tier.force * 0.4;
+      setBallUser(username);
+      setActiveBoost({ emoji: tier.emoji, label: `@${username} ${tier.label}`, color: tier.color });
+      setTimeout(() => setActiveBoost(null), 2500);
+    }
+  }, []);
 
-      let { wx, wy }       = posRef.current;
-      let { wx:vx, wy:vy } = velRef.current;
+  // ── Launch the ball ──────────────────────────────────────────────────
+  const launch = useCallback((username) => {
+    if (phaseRef.current !== 'charging') return;
+    const chargePct = chargeRef.current / CHARGE_MAX;
+    const m = multRef.current;
+    const spd = LAUNCH_POWER_BASE * chargePct * (m.power || 1);
+    vxRef.current = spd * Math.cos(LAUNCH_RAD);
+    vyRef.current = spd * Math.sin(LAUNCH_RAD);
+    setBallWx(0); setBallWy(0); setBallRot(0);
+    setCamWx(0);
+    if (username) setBallUser(username);
+    const obs = buildObstacles(m.bomb || 0, m.bouncer || 0);
+    obsRef.current = obs;
+    setObstacles(obs);
+    syncPhase('in_flight');
+    chargeRef.current = 0;
+    setChargeLevel(0);
+    startPhysics();
+  }, []);
 
-      // Apply gravity always
-      vy -= GRAVITY_WU * dt;
-      wx += vx * dt;
-      wy += vy * dt;
-      rotRef.current = (rotRef.current + vx * 6 * dt) % 360;
+  const startPhysics = () => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    let wx = 0, wy = 0, rot = 0, camX = 0;
+    const DT = TICK_MS / 1000;
+    tickRef.current = setInterval(() => {
+      const ph = phaseRef.current;
+      if (ph !== 'in_flight' && ph !== 'rolling') {
+        clearInterval(tickRef.current); return;
+      }
+      let vx = vxRef.current;
+      let vy = vyRef.current;
 
-      // Hit the platform (wy <= 0)
-      if (wy <= 0) {
+      // Gravity
+      vy -= GRAVITY_WU * DT;
+
+      // Ground collision
+      if (wy + vy * DT <= 0) {
         wy = 0;
-        // Bounce with restitution — if tiny vertical speed, stop bouncing
-        if (Math.abs(vy) < 1.5) {
-          vy = 0;
-          if (p === 'in_flight') { setPhase('rolling'); phaseRef.current = 'rolling'; }
+        if (Math.abs(vy) > 2) {
+          vy = -vy * BOUNCE_REST;
+          vx *= 0.9;
         } else {
-          vy = -Math.abs(vy) * BOUNCE_REST;
-          if (p === 'in_flight') { setPhase('rolling'); phaseRef.current = 'rolling'; }
+          vy = 0;
+          wy = 0;
+          if (ph === 'in_flight') syncPhase('rolling');
         }
       }
 
-      // Friction when on ground
-      if (wy <= 0) {
+      // Obstacle collisions
+      const newObs = [...obsRef.current];
+      let obsHit = false;
+      for (let i = 0; i < newObs.length; i++) {
+        const o = newObs[i];
+        if (!o.active) continue;
+        const dx = wx - o.wx, dy = wy - o.wy;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < o.r + 1.1) {
+          if (o.type === 'bouncer') { vy = Math.abs(vy) * 1.8 + 8; vx += 2; }
+          if (o.type === 'bomb')    { vx += 12; vy += 6; }
+          newObs[i] = { ...o, active: false };
+          obsHit = true;
+        }
+      }
+      if (obsHit) { obsRef.current = newObs; setObstacles([...newObs]); }
+
+      // Rolling friction
+      if (ph === 'rolling') {
         vx *= FRICTION_GND;
+        wy = 0; vy = 0;
+        rot += vx * 18 * DT;
+      } else {
+        rot += vx * 8 * DT;
       }
 
-      // Ball stopped
-      if (wy <= 0 && Math.abs(vx) < 0.1 && Math.abs(vy) < 0.5) {
-        stopAll();
-        const zone  = getFloorZone(wx);
+      // Move
+      wx += vx * DT;
+      wy += vy * DT;
+      if (wy < 0) wy = 0;
+
+      // Camera
+      const targetCam = Math.max(0, wx - CAM_LEAD_WU);
+      camX += (targetCam - camX) * CAM_LERP_X;
+
+      vxRef.current = vx; vyRef.current = vy;
+      setBallWx(parseFloat(wx.toFixed(2)));
+      setBallWy(parseFloat(wy.toFixed(2)));
+      setBallRot(parseFloat(rot.toFixed(1)));
+      setCamWx(parseFloat(camX.toFixed(2)));
+      const dist = Math.round(wx);
+      setCurrentDist(dist);
+      setFloorZone(getFloorZone(wx));
+
+      // Stop condition
+      if (ph === 'rolling' && Math.abs(vx) < 0.3) {
+        clearInterval(tickRef.current);
+        const zone = getFloorZone(wx);
         const score = Math.round(wx * zone.mult * 10);
         setFinalScore(score);
-        bestRef.current = Math.max(bestRef.current, score);
-        setBestScore(bestRef.current);
+        setBestScore(prev => Math.max(prev, score));
         setLeaderboard(prev => {
-          const next = [...prev, { user:currentShooter, score, dist:Math.round(wx), ts:Date.now() }]
-            .sort((a,b) => b.score - a.score);
-          const seen = new Set();
-          return next.filter(e => { if (seen.has(e.user)) return false; seen.add(e.user); return true; }).slice(0,10);
+          const entry = { user: ballUserRef.current ?? 'viewer', dist: Math.round(wx), score, ts: Date.now() };
+          return [entry, ...prev].sort((a,b)=>b.score-a.score).slice(0,10);
         });
-        setPhase('landed'); phaseRef.current = 'landed';
-        fuelsRef.current -= 1; setFuelsLeft(fuelsRef.current);
-        return;
+        syncPhase('landed');
+        setTimeout(() => resetRound(), 4000);
       }
-
-      // Obstacle collisions (only when ball is near platform)
-      if (wy <= 3.5) {
-        const newObs = obsRef.current.map(ob => {
-          if (!ob.active) return ob;
-          const dx = wx - ob.wx;
-          const dy = wy - ob.wy;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < ob.r + 1.2) {
-            const eid = hefRef.current++;
-            if (ob.type === 'bomb') {
-              // Big forward blast + launch up into sky
-              vx += 18 + Math.random() * 8;
-              vy  = 22 + Math.random() * 8;
-              wy  = 0.5; // lift off ground slightly
-              setExplosions(prev => [...prev, { id:eid, wx:ob.wx, wy:ob.wy, r:5, ts:Date.now() }]);
-              setTimeout(() => setExplosions(prev => prev.filter(e => e.id !== eid)), 800);
-              setHitEffects(prev => [...prev, { id:eid+'b', wx:ob.wx, wy:ob.wy+2, label:'BOOM!', color:'#ff4444' }]);
-              setTimeout(() => setHitEffects(prev => prev.filter(e => e.id !== eid+'b')), 700);
-            } else if (ob.type === 'bouncer') {
-              // Spring launch — high up, keep forward speed
-              vy  = 24 + Math.abs(vx) * 0.5;
-              vx *= 1.1; // slight speed boost forward
-              wy  = 0.5;
-              setHitEffects(prev => [...prev, { id:eid, wx:ob.wx, wy:ob.wy+2, label:'BOING!', color:'#ffaa00' }]);
-              setTimeout(() => setHitEffects(prev => prev.filter(e => e.id !== eid)), 700);
-            }
-            return { ...ob, active: false };
-          }
-          return ob;
-        });
-        obsRef.current = newObs;
-        setObstacles([...newObs]);
-        setFloorZone(getFloorZone(wx));
-      }
-
-      wx = Math.max(0, wx);
-      posRef.current = { wx, wy }; velRef.current = { wx:vx, wy:vy };
-      const targetCam = Math.max(0, wx - CAM_LEAD_WU);
-      camRef.current += (targetCam - camRef.current) * CAM_LERP_X;
-      setBallWx(wx); setBallWy(wy);
-      setBallRot(Math.round(rotRef.current));
-      setCamWx(camRef.current);
-      setCurrentDist(Math.round(wx));
     }, TICK_MS);
-  }, [stopAll, computeTrajectory]);
+  };
 
-  useEffect(() => { updateTickRef.current = updateTick; }, [updateTick]);
+  const ballUserRef = useRef(null);
+  useEffect(() => { ballUserRef.current = ballUser; }, [ballUser]);
 
-  const processGift = useCallback((user, coins) => {
-    const tier  = getGiftTier(coins);
-    const boost = { ...tier, user, coins };
-    const p     = phaseRef.current;
-    if (p === 'charging') {
-      chargeRef.current = Math.min(CHARGE_MAX, chargeRef.current + tier.chargeAdd);
-      setChargeLevel(chargeRef.current);
-      computeTrajectory(chargeRef.current, multRef.current.power);
-      setActiveBoost(boost); setTimeout(()=>setActiveBoost(null),1400);
-      if (chargeRef.current >= CHARGE_MAX) fireBallRef.current?.();
-    } else if (p === 'in_flight' || p === 'rolling') {
-      velRef.current.wx += tier.force;
-      setActiveBoost(boost); setTimeout(()=>setActiveBoost(null),1400);
-    } else if (p === 'idle' || p === 'landed') {
-      boostRef.current = [...boostRef.current, boost];
-      setBoostQueue([...boostRef.current]);
-      if (p === 'idle') setTimeout(()=>startRound(user), 300);
-      else if (fuelsRef.current > 0) setTimeout(()=>refire(user), 300);
-    } else if (p === 'chest_pick') {
-      boostRef.current = [...boostRef.current, boost];
-      setBoostQueue([...boostRef.current]);
-    }
-  }, [computeTrajectory]);
-
-  const refire = useCallback((sh = 'host') => {
-    if (phaseRef.current !== 'landed') return;
-    if (fuelsRef.current <= 0) return;
-    stopAll();
-    shooterRef.current = sh; setShooter(sh);
+  const resetRound = useCallback(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    vxRef.current = 0; vyRef.current = 0;
+    setBallWx(0); setBallWy(0); setBallRot(0);
+    setCamWx(0); setCurrentDist(0); setFloorZone(FLOOR_ZONES[0]);
+    setObstacles([]); obsRef.current = [];
+    setMultipliers({ power:1, bomb:0, bouncer:0 });
+    multRef.current = { power:1, bomb:0, bouncer:0 };
     chargeRef.current = 0; setChargeLevel(0);
-    posRef.current = {wx:0,wy:0}; velRef.current = {wx:0,wy:0};
-    rotRef.current = 0; camRef.current = 0;
-    setFinalScore(0); setCurrentDist(0);
-    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
-    setExplosions([]); setHitEffects([]);
-    const m = multRef.current;
-    const obs = buildObstacles(m.bomb, m.bouncer);
-    obsRef.current = obs; setObstacles(obs);
-    setFloorZone(FLOOR_ZONES[0]);
-    const queue = boostRef.current;
-    if (queue.length) {
-      chargeRef.current = Math.min(CHARGE_MAX, queue.reduce((s,b)=>s+b.chargeAdd,0));
-      setChargeLevel(chargeRef.current);
-      boostRef.current = []; setBoostQueue([]);
+    setBallUser(null);
+    setRoundCount(p => p + 1);
+    syncPhase('idle');
+  }, []);
+
+  const startNewRound = useCallback(() => {
+    if (phaseRef.current !== 'idle' && phaseRef.current !== 'landed') return;
+    setAuctionBids({});
+    setAuctionWinner(null);
+    setShowChestPick(false);
+    chargeRef.current = 0; setChargeLevel(0);
+    syncPhase('auction');
+    setAuctionPhase(true);
+  }, []);
+
+  const manualLaunch = useCallback(() => {
+    if (phaseRef.current === 'charging' && chargeRef.current >= CHARGE_THRESHOLD) {
+      launch(null);
     }
-    computeTrajectory(chargeRef.current, m.power);
-    setPhase('charging'); phaseRef.current = 'charging';
-    timerRef.current = updateTickRef.current?.(sh);
-  }, [stopAll, computeTrajectory]);
+  }, [launch]);
 
-  const startRound = useCallback((sh = 'host') => {
-    const p = phaseRef.current;
-    if (p==='charging'||p==='in_flight'||p==='rolling'||p==='chest_pick') return;
-    stopAll();
-    shooterRef.current = sh; setShooter(sh);
-    chargeRef.current=0; holdingRef.current=false;
-    posRef.current={wx:0,wy:0}; velRef.current={wx:0,wy:0};
-    rotRef.current=0; camRef.current=0; fuelsRef.current=1;
-    multRef.current={power:1,bomb:2,bouncer:2};
-    obsRef.current=[];
-    setChestsPicked([]); setMultipliers({power:1,bomb:2,bouncer:2});
-    setChargeLevel(0); setFuelsLeft(1);
-    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
-    setCurrentDist(0); setFinalScore(0);
-    setObstacles([]); setExplosions([]); setHitEffects([]);
-    setTrajectory([]); setFloorZone(FLOOR_ZONES[0]);
-    setPhase('chest_pick'); phaseRef.current = 'chest_pick';
-  }, [stopAll]);
+  const forceStartCharging = useCallback(() => {
+    if (phaseRef.current === 'idle' || phaseRef.current === 'landed') {
+      setAuctionBids({});
+      setAuctionPhase(true);
+      syncPhase('auction');
+    }
+  }, []);
 
-  const manualFire = useCallback(() => {
-    const p = phaseRef.current;
-    if (p==='idle'||p==='landed') startRound('host');
-    else if (p==='charging') fireBallRef.current?.();
-  }, [startRound]);
-
-  const reset = useCallback(() => {
-    stopAll();
-    chargeRef.current=0; holdingRef.current=false;
-    posRef.current={wx:0,wy:0}; velRef.current={wx:0,wy:0};
-    rotRef.current=0; camRef.current=0; fuelsRef.current=1;
-    multRef.current={power:1,bomb:2,bouncer:2}; boostRef.current=[];
-    setPhase('idle'); phaseRef.current='idle';
-    setChestsPicked([]); setMultipliers({power:1,bomb:2,bouncer:2});
-    setChargeLevel(0); setFuelsLeft(1);
-    setBallWx(0); setBallWy(0); setBallRot(0); setCamWx(0);
-    setCurrentDist(0); setFinalScore(0);
-    setObstacles([]); setExplosions([]); setHitEffects([]);
-    setTrajectory([]); setFloorZone(FLOOR_ZONES[0]);
-    setBoostQueue([]); setActiveBoost(null);
-  }, [stopAll]);
-
-  useEffect(() => () => stopAll(), [stopAll]);
+  useEffect(() => () => { if (tickRef.current) clearInterval(tickRef.current); }, []);
 
   return {
-    phase, chestsPicked, multipliers, chargeLevel, fuelsLeft,
-    ballWx, ballWy, ballRot, camWx, currentDist, finalScore, bestScore,
-    obstacles, explosions, hitEffects, activeBoost, boostQueue,
-    leaderboard, roundCount, trajectory, floorZone, shooter,
-    startRound, pickChest, startHold, endHold,
-    manualFire, reset, processGift, refire,
+    // State
+    phase, multipliers, chargeLevel, ballWx, ballWy, ballRot, ballUser,
+    camWx, currentDist, finalScore, bestScore, floorZone,
+    obstacles, activeBoost, leaderboard, roundCount,
+    // Auction
+    auctionPhase, auctionBids, auctionWinner, showChestPick, recentGifts,
+    // Actions
+    processGift, startAuction, endAuction, pickChest,
+    launch, manualLaunch, startNewRound, resetRound, forceStartCharging,
   };
 }
