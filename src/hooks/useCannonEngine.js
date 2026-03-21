@@ -143,20 +143,24 @@ export function useCannonEngine() {
     });
   }, []);
 
-  // Pick a chest — each is a mystery, reveals a random CHEST_REWARD
+  // Pick a chest — guaranteed 1 power, 1 bombs, 1 bounce across 3 picks
+  // Order is: pick1=power, pick2=bombs, pick3=bounce (in order of click)
+  const GUARANTEED_REWARDS = [
+    { id:'power',   label:'Power',   icon:'⚡', color:'#ffdd00', mult:{ power:4  } },
+    { id:'bombs',   label:'Bombs',   icon:'💣', color:'#ff4422', mult:{ bombs:4  } },
+    { id:'springs', label:'Springs', icon:'🟡', color:'#ffaa00', mult:{ bounce:4 } },
+  ];
+
   const pickChest = useCallback((slotIndex) => {
     if (phaseRef.current !== 'chest_pick') return;
-    // Pick random reward not already picked
-    const allIds = CHEST_REWARDS.map(r => r.id);
-    const picked = pickedChests.map(p => p.id);
-    const available = CHEST_REWARDS.filter(r => !picked.includes(r.id));
-    const reward = available[Math.floor(Math.random() * available.length)];
+
+    const pickNumber = 3 - chestsRemain; // 0, 1, or 2
+    const reward = GUARANTEED_REWARDS[pickNumber];
     if (!reward) return;
 
     const newPicked = [...pickedChests, reward];
     setPickedChests(newPicked);
 
-    // Apply multiplier
     setMultipliers(prev => {
       const next = { ...prev };
       Object.entries(reward.mult).forEach(([k, v]) => { next[k] = (next[k]||0) + v; });
@@ -169,7 +173,6 @@ export function useCannonEngine() {
 
     if (remaining <= 0) {
       setShowChestPick(false);
-      // Build platform objects based on final multipliers
       const m = multRef.current;
       const objs = buildPlatformObjects(m.bombs || 0, m.bounce || 0);
       objsRef.current = objs;
