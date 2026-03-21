@@ -53,10 +53,36 @@ function UserEditModal({ user, plans, onClose, onSaved, onRefresh, toast }) {
     if (!grantPlanId) return;
     setGranting(true);
     const plan = plans.find(p => p.id === grantPlanId);
-    const expires = plan?.duration_days ? new Date(Date.now() + plan.duration_days * 86400000).toISOString() : null;
-    const { error } = await adminSupabase.from('user_plans').insert({ user_id: user.id, plan_id: grantPlanId, expires_at: expires });
-    if (error) toast({ variant: 'destructive', title: 'Error', description: error.message });
-    else { toast({ title: 'Plan granted' }); onRefresh(user.id); setGrantPlanId(''); }
+    const isLifetime = !plan?.duration_days || plan?.billing_interval === 'lifetime';
+    const expires = isLifetime ? null : new Date(Date.now() + plan.duration_days * 86400000).toISOString();
+
+    // 1. Insert user_plans row
+    const { error: planError } = await adminSupabase.from('user_plans').insert({
+      user_id: user.id, plan_id: grantPlanId, expires_at: expires,
+    });
+    if (planError) {
+      toast({ variant: 'destructive', title: 'Error granting plan', description: planError.message });
+      setGranting(false); return;
+    }
+
+    // 2. Auto-generate and link a license key for this plan
+    const keyCode = generateKeyCode();
+    const { error: keyError } = await adminSupabase.from('license_keys').insert({
+      key_code:    keyCode,
+      user_id:     user.id,
+      plan_id:     grantPlanId,
+      status:      'active',
+      is_lifetime: isLifetime,
+      expires_at:  expires,
+    });
+    if (keyError) {
+      // Plan was granted but key failed — warn but don't block
+      toast({ variant: 'destructive', title: 'Key generation failed', description: keyError.message });
+    } else {
+      toast({ title: 'Plan granted', description: 'Key ' + keyCode + ' generated and linked.' });
+    }
+
+    onRefresh(user.id); setGrantPlanId('');
     setGranting(false);
   };
 

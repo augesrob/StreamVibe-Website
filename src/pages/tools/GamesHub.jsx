@@ -7,6 +7,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink, Lock, Zap } from 'lucide-react';
 import { getAvailableGames } from '@/components/games/GameRegistry';
+import { userHasAccess } from '@/components/games/GamePlanGate';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const COLOR_MAP = {
@@ -20,11 +21,7 @@ function GameCard({ game }) {
   const { userPlans, isAdmin } = useAuth();
   const c = COLOR_MAP[game.color] ?? COLOR_MAP.cyan;
 
-  const required = game.requiredPlanNames ?? [];
-  const hasAccess = isAdmin || userPlans?.some(up => {
-    const planName = up.plans?.name ?? '';
-    return required.some(r => planName.toLowerCase() === r.toLowerCase());
-  });
+  const hasAccess = userHasAccess(game, userPlans, isAdmin);
 
   return (
     <div onClick={() => navigate(hasAccess ? game.route : '/billing')}

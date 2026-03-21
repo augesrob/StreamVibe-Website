@@ -41,13 +41,15 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUserPlans = async (userId) => {
     try {
-      const { data, error } = await supabase
-        .from('user_plans')
-        .select('*, plans(*)')
-        .eq('user_id', userId)
-        .gte('expires_at', new Date().toISOString());
-      if (error) throw error;
-      setUserPlans(data || []);
+      // Fetch all plans: active non-expired OR lifetime (expires_at IS NULL)
+      const now = new Date().toISOString();
+      const { data: active } = await supabase
+        .from('user_plans').select('*, plans(*)')
+        .eq('user_id', userId).gte('expires_at', now);
+      const { data: lifetime } = await supabase
+        .from('user_plans').select('*, plans(*)')
+        .eq('user_id', userId).is('expires_at', null);
+      setUserPlans([...(active || []), ...(lifetime || [])]);
     } catch (error) {
       console.error('Error fetching user plans:', error);
     }

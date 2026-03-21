@@ -1,16 +1,23 @@
 /**
- * GamePlanGate
- * Checks the user's active plans (userPlans from useAuth)
- * and blocks access if they don't have a required plan.
- * To change which plan unlocks a game → edit requiredPlanNames in GameRegistry.js
+ * GamePlanGate — checks user's active plans by tier
+ * Tiers: basic / pro / legend (matching plans table)
  */
 import React from 'react';
 import { Lock, Zap, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
+export function userHasAccess(game, userPlans, isAdmin) {
+  if (isAdmin) return true;
+  const required = game.requiredTiers ?? [];
+  return userPlans?.some(up => {
+    const tier = (up.plans?.tier ?? '').toLowerCase();
+    return required.includes(tier);
+  }) ?? false;
+}
+
 export default function GamePlanGate({ game, children }) {
-  const { user, userPlans, loading, isAdmin } = useAuth();
+  const { userPlans, loading, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   if (loading) {
@@ -21,17 +28,7 @@ export default function GamePlanGate({ game, children }) {
     );
   }
 
-  // Admins always get access
-  if (isAdmin) return <>{children}</>;
-
-  // Check if any of the user's active plans match the required plan names
-  const required = game.requiredPlanNames ?? [];
-  const hasAccess = userPlans?.some(up => {
-    const planName = up.plans?.name ?? '';
-    return required.some(r => planName.toLowerCase() === r.toLowerCase());
-  });
-
-  if (hasAccess) return <>{children}</>;
+  if (userHasAccess(game, userPlans, isAdmin)) return <>{children}</>;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 px-4">
@@ -40,10 +37,10 @@ export default function GamePlanGate({ game, children }) {
         <Lock className="w-10 h-10 text-yellow-400" />
       </div>
       <div className="text-center max-w-md">
-        <h2 className="text-2xl font-bold text-white mb-2">Upgrade Required</h2>
+        <h2 className="text-2xl font-bold text-white mb-2">Plan Required</h2>
         <p className="text-gray-400 leading-relaxed">
-          <span className="text-cyan-400 font-semibold">{game.name}</span> requires an active paid plan.
-          Upgrade to unlock all interactive live games.
+          <span className="text-cyan-400 font-semibold">{game.name}</span> requires an active
+          Basic, Pro, or Legend plan to access.
         </p>
       </div>
       <div className="flex flex-col sm:flex-row gap-3">
