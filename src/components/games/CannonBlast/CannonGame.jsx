@@ -127,7 +127,7 @@ export default function CannonGame({ engine }) {
             return sx > -50 && sx < 1200;
           }).map(mk=>{
             const isCurrent = mk.num === currentMark;
-            const worldPx = mk.wx * PX_PER_WU;
+            const worldPx = mk.worldX * PX_PER_WU;
             return (
               <React.Fragment key={mk.num}>
                 {/* Marker circle — top edge above rail, bottom edge AT rail top */}
@@ -170,7 +170,7 @@ export default function CannonGame({ engine }) {
 
           {/* BOMBS on platform */}
           {(platObjects||[]).filter(o=>o.type==='bomb'&&o.active).map(o=>{
-            const worldPx = o.wx * PX_PER_WU;
+            const worldPx = o.worldX * PX_PER_WU;
             return (
               <div key={o.id} style={{
                 position:'absolute', left:worldPx-14, top:platY-28,
@@ -191,7 +191,7 @@ export default function CannonGame({ engine }) {
 
           {/* BOUNCERS (springs) on platform */}
           {(platObjects||[]).filter(o=>o.type==='bouncer'&&o.active).map(o=>{
-            const worldPx = o.wx * PX_PER_WU;
+            const worldPx = o.worldX * PX_PER_WU;
             return (
               <div key={o.id} style={{
                 position:'absolute', left:worldPx-16, top:platY-18,
