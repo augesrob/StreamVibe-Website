@@ -10,12 +10,14 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession]     = useState(null);
   const [loading, setLoading]     = useState(true);
   const [isAdmin, setIsAdmin]     = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
   const [userPlans, setUserPlans] = useState([]);
 
   const checkAdmin = (u) => {
-    if (!u) { setIsAdmin(false); return; }
+    if (!u) { setIsAdmin(false); setIsModerator(false); return; }
     const role = u.app_metadata?.role || u.user_metadata?.role;
     setIsAdmin(role === 'admin');
+    setIsModerator(role === 'admin' || role === 'moderator');
   };
 
   useEffect(() => {
@@ -94,6 +96,6 @@ export const AuthProvider = ({ children }) => {
     if (user) await fetchUserPlans(user.id);
   };
 
-  const value = { session, user, loading, isAdmin, userPlans, signIn, signUpWithEmail, signOut, refreshPlans };
+  const value = { session, user, loading, isAdmin, isModerator, userPlans, signIn, signUpWithEmail, signOut, refreshPlans };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
