@@ -311,7 +311,7 @@ export default function CannonGame({ engine }) {
             {[['🔫',multipliers.launch||1,'#ff4400'],
               ['💣',multipliers.bombs||0,'#ff6600'],
               ['🟡',multipliers.bounce||0,'#ffaa00'],
-              ['⭐',multipliers.power||1,'#ffdd00']].map(([icon,val,col],i)=>(
+              ['⚡',multipliers.power||1,'#ffdd00']].map(([icon,val,col],i)=>(
               <div key={i} style={{display:'flex',gap:5,alignItems:'center',marginBottom:i<3?2:0}}>
                 <span style={{fontSize:12}}>{icon}</span>
                 <span style={{fontWeight:900,fontSize:12,color:col}}>{val}x</span>

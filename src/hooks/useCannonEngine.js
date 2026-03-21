@@ -66,12 +66,12 @@ function buildPlatformObjects(bombCount, bounceCount) {
   // Bombs spaced along platform
   const bombPositions = [15, 28, 42, 60, 78, 95, 115, 135, 158, 182, 210, 240];
   for (let i = 0; i < Math.min(bombCount, bombPositions.length); i++) {
-    objs.push({ id:`bomb_${i}`, type:'bomb', wx: bombPositions[i], active: true });
+    objs.push({ id:`bomb_${i}`, type:'bomb', worldX: bombPositions[i], active: true });
   }
   // Bouncers between bombs
   const bouncePositions = [22, 35, 50, 68, 88, 108, 130, 155, 180, 208];
   for (let i = 0; i < Math.min(bounceCount, bouncePositions.length); i++) {
-    objs.push({ id:`bounce_${i}`, type:'bouncer', wx: bouncePositions[i], active: true });
+    objs.push({ id:`bounce_${i}`, type:'bouncer', worldX: bouncePositions[i], active: true });
   }
   return objs;
 }
@@ -79,7 +79,7 @@ function buildPlatformObjects(bombCount, bounceCount) {
 // Pre-generate markers (200 of them)
 export const MARKERS = Array.from({ length: 200 }, (_, i) => ({
   num:    i + 1,
-  wx:     (i + 1) * MARKER_SPACING_WU,
+  worldX: (i + 1) * MARKER_SPACING_WU,
   reward: getRewardForMarker(i + 1),
 }));
 
@@ -247,7 +247,7 @@ export function useCannonEngine() {
       const hitSet = markHitRef.current;
       for (const mk of MARKERS) {
         if (hitSet.has(mk.num)) continue;
-        if (bx >= mk.wx - 1.5 && bx <= mk.wx + 1.5 && by <= 1.5) {
+        if (bx >= mk.worldX - 1.5 && bx <= mk.worldX + 1.5 && by <= 1.5) {
           vx *= BUMP_SLOW;
           if (vx < 0.3) vx = 0;
           if (by <= 0.4) vy = Math.max(vy, 3.5); // small hop over bump
@@ -263,7 +263,7 @@ export function useCannonEngine() {
       for (let i = 0; i < objs.length; i++) {
         const o = objs[i];
         if (!o.active) continue;
-        if (Math.abs(bx - o.wx) < 2.0 && by <= 2.0) {
+        if (Math.abs(bx - o.worldX) < 2.0 && by <= 2.0) {
           if (o.type === 'bomb') {
             // Bomb: big forward push + upward blast
             vx += 18; vy = Math.max(vy, 14);
