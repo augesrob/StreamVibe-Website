@@ -1,184 +1,35 @@
 /**
- * CannonBlastOverlay v9 — TikTok Live Studios Browser Source
- *
+ * CannonBlastOverlay — TikTok Live Studios Browser Source
  * URL: /games-overlay/cannon-blast?token=YOUR_TOKEN
  *
  * TIKTOK LIVE STUDIOS SETUP:
- *   1. Add "Browser Source" widget
+ *   1. Add Browser Source widget
  *   2. Paste your overlay URL
- *   3. Width: 1080, Height: 1920 (portrait) OR Width: 1920, Height: 1080 (landscape)
- *   4. Enable "Transparent Background"
- *   5. Check "Shutdown source when not visible"
- *
- * Background is fully transparent — overlays cleanly over your camera feed.
+ *   3. Width: 1920, Height: 1080
+ *   4. Enable Transparent Background
  */
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/customSupabaseClient';
-import { FLOOR_ZONES, CHEST_TYPES } from '@/hooks/useCannonEngine';
+import { CHEST_PICKS } from '@/hooks/useCannonEngine';
 
-// ── Canvas dimensions matching CannonGame ─────────────────────────────
-const CW       = 1080;
-const CH_GAME  = 360;    // game canvas strip height
-const PX       = 10;
-const GND_Y    = CH_GAME - 60;
-const CANNON_X = 100;
-const BALL_R   = 14;
+const MARKER_STEP = 85;
+const PX_PER_WU   = MARKER_STEP / 10;
+const CANNON_X    = 68;
+const BALL_R      = 13;
 
-function wx2cx(wx, camWx) { return CANNON_X + (wx - camWx) * PX; }
-function wy2cy(wy)         { return GND_Y - wy * PX; }
-
-// ── Gummy Bear (overlay version) ──────────────────────────────────────
-function GummyBearSVG({ cx, cy, r, rot, color, username }) {
-  const s = r / 11;
-  return (
-    <g transform={`translate(${cx},${cy}) rotate(${rot})`}>
-      <ellipse cx={0} cy={2*s} rx={9*s} ry={10*s} fill={color} stroke="rgba(255,255,255,0.25)" strokeWidth={1.2}/>
-      <circle cx={0} cy={-9*s} r={8*s} fill={color} stroke="rgba(255,255,255,0.25)" strokeWidth={1.2}/>
-      <circle cx={-6*s} cy={-16*s} r={3.5*s} fill={color}/>
-      <circle cx={ 6*s} cy={-16*s} r={3.5*s} fill={color}/>
-      <circle cx={-3*s} cy={-10*s} r={2*s} fill="rgba(0,0,0,0.8)"/>
-      <circle cx={ 3*s} cy={-10*s} r={2*s} fill="rgba(0,0,0,0.8)"/>
-      <circle cx={-2*s} cy={-11*s} r={0.8*s} fill="white"/>
-      <circle cx={ 4*s} cy={-11*s} r={0.8*s} fill="white"/>
-      <ellipse cx={0} cy={-7*s} rx={1.5*s} ry={s} fill="rgba(0,0,0,0.5)"/>
-      <path d={`M${-3*s} ${-5*s} Q 0 ${-2*s} ${3*s} ${-5*s}`}
-        stroke="rgba(0,0,0,0.6)" strokeWidth={1.2*s} fill="none" strokeLinecap="round"/>
-      <ellipse cx={-11*s} cy={-2*s} rx={3*s} ry={5*s} fill={color} transform={`rotate(-25,${-11*s},${-2*s})`}/>
-      <ellipse cx={ 11*s} cy={-2*s} rx={3*s} ry={5*s} fill={color} transform={`rotate( 25,${11*s},${-2*s})`}/>
-      <ellipse cx={-4*s} cy={12*s} rx={3.5*s} ry={5*s} fill={color}/>
-      <ellipse cx={ 4*s} cy={12*s} rx={3.5*s} ry={5*s} fill={color}/>
-      <ellipse cx={-3*s} cy={-1*s} rx={2.5*s} ry={4*s} fill="rgba(255,255,255,0.18)" transform="rotate(-20,-3,0)"/>
-      {username && (
-        <g transform={`rotate(${-rot}) translate(0,${-28*s})`}>
-          <rect x={-50} y={-13} width={100} height={18} rx={6} fill="rgba(0,0,0,0.75)" stroke="rgba(255,255,255,0.35)" strokeWidth={1.5}/>
-          <text textAnchor="middle" y={2} fontSize={11} fill="white" fontWeight="900"
-            fontFamily="'Arial Black',Impact,sans-serif">@{username.slice(0,14)}</text>
-        </g>
-      )}
-    </g>
-  );
-}
-
-// ── Game strip canvas ─────────────────────────────────────────────────
-function GameStrip({ state }) {
-  const phase      = state?.phase      ?? 'idle';
-  const ballWx     = state?.ballWx     ?? 0;
-  const ballWy     = state?.ballWy     ?? 0;
-  const ballRot    = state?.ballRot    ?? 0;
-  const ballUser   = state?.ballUser   ?? null;
-  const camWx      = state?.camWx      ?? 0;
-  const chargeLevel= state?.chargeLevel?? 0;
-  const obstacles  = state?.obstacles  ?? [];
-  const floorZone  = state?.floorZone  ?? FLOOR_ZONES[0];
-  const zoneIdx    = FLOOR_ZONES.findIndex(z=>z?.label===floorZone?.label);
-  const bearColors = ['#ff6b9d','#ff9966','#66ccff','#aa66ff','#ff4466'];
-  const bearColor  = bearColors[Math.max(0,zoneIdx)];
-  const showBall   = phase==='in_flight'||phase==='rolling'||phase==='landed';
-  const ballCx     = wx2cx(ballWx, camWx);
-  const ballCy     = wy2cy(ballWy);
-
-  return (
-    <svg width="100%" viewBox={`0 0 ${CW} ${CH_GAME}`} preserveAspectRatio="xMidYMid meet"
-      style={{ display:'block' }}>
-      {/* Sky - semi-transparent for overlay */}
-      <defs>
-        <linearGradient id="skyOvl" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(80,160,220,0.7)"/>
-          <stop offset="100%" stopColor="rgba(160,210,240,0.5)"/>
-        </linearGradient>
-      </defs>
-      <rect width={CW} height={CH_GAME} fill="url(#skyOvl)" rx={16}/>
-
-      {/* Platform planks */}
-      {Array.from({length:80},(_,i)=>i*14).map(wx=>{
-        const x1=wx2cx(wx,camWx); const x2=wx2cx(wx+14,camWx);
-        if(x2<-5||x1>CW+5) return null;
-        return <rect key={wx} x={x1} y={GND_Y} width={Math.max(0,x2-x1-1)} height={CH_GAME-GND_Y}
-          fill={wx%28===0?'rgba(200,148,58,0.9)':'rgba(212,160,68,0.9)'} rx={1}/>;
-      })}
-      <line x1={0} y1={GND_Y} x2={CW} y2={GND_Y} stroke="rgba(255,255,255,0.5)" strokeWidth={2}/>
-
-      {/* Distance rings */}
-      {Array.from({length:15},(_,i)=>(i+1)*20).map(m=>{
-        const cx=wx2cx(m,camWx);
-        if(cx<-10||cx>CW+10) return null;
-        const big = m%100===0;
-        return (
-          <g key={m}>
-            <line x1={cx} y1={GND_Y-3} x2={cx} y2={GND_Y-20} stroke={big?'#ffe066':'rgba(255,255,255,0.55)'} strokeWidth={big?3:1.5}/>
-            <text x={cx} y={GND_Y-25} textAnchor="middle" fontSize={big?14:10} fill={big?'#ffe066':'rgba(255,255,255,0.8)'}
-              fontWeight={big?'900':'400'} fontFamily="'Arial Black',Impact,sans-serif">{m}m</text>
-          </g>
-        );
-      })}
-
-      {/* Obstacles */}
-      {obstacles.filter(o=>o.active).map(o=>{
-        const cx=wx2cx(o.wx,camWx); const cy=wy2cy(o.wy);
-        if(cx<-20||cx>CW+20) return null;
-        if(o.type==='bomb') return (
-          <g key={o.id} transform={`translate(${cx},${cy})`}>
-            <circle r={12} fill="#222" stroke="#666" strokeWidth={2}/>
-            <line x1={0} y1={-12} x2={3} y2={-20} stroke="#aaa" strokeWidth={2}/>
-            <circle cx={4} cy={-22} r={4} fill="#ff8800" opacity={0.9}/>
-          </g>
-        );
-        if(o.type==='bouncer') return (
-          <g key={o.id} transform={`translate(${cx},${cy})`}>
-            <ellipse cx={0} cy={0} rx={14} ry={9} fill="#ffd700" stroke="#cc9900" strokeWidth={2}/>
-          </g>
-        );
-        return null;
-      })}
-
-      {/* Cannon */}
-      <g transform={`translate(${CANNON_X},${GND_Y})`}>
-        <circle cx={-16} cy={8} r={18} fill="#1a1008" stroke="#5a3010" strokeWidth={3}/>
-        <circle cx={ 16} cy={8} r={18} fill="#1a1008" stroke="#5a3010" strokeWidth={3}/>
-        <rect x={-28} y={-13} width={62} height={24} rx={8} fill="#120c04" stroke="#3a2008" strokeWidth={2}/>
-        <g transform={`rotate(${-38 - (chargeLevel/100)*4},10,-5)`}>
-          <rect x={4} y={-12} width={75} height={24} rx={12} fill="#0e0e0e" stroke="#555" strokeWidth={2.5}/>
-        </g>
-      </g>
-
-      {/* Charge bar */}
-      {phase==='charging' && chargeLevel > 0 && (() => {
-        const pct = chargeLevel/100;
-        const col = pct<0.35?'#00e5ff':pct<0.65?'#ffd600':pct<0.88?'#ff6d00':'#ff1744';
-        return (
-          <g transform={`translate(${CW/2-180},14)`}>
-            <rect x={0} y={0} width={360} height={36} rx={12} fill="rgba(0,0,0,0.8)" stroke="rgba(255,255,255,0.2)" strokeWidth={2}/>
-            <rect x={4} y={4} width={352*pct} height={28} rx={10} fill={col}/>
-            <text x={180} y={24} textAnchor="middle" fontSize={13} fontWeight="900" fill="white"
-              fontFamily="'Arial Black',Impact,sans-serif">
-              {pct<0.25?'🎁 GIFT TO CHARGE!':pct<0.99?`⚡ ${Math.round(pct*100)}% CHARGED`:'🔥 FULL POWER!'}
-            </text>
-          </g>
-        );
-      })()}
-
-      {/* Ball */}
-      {showBall && ballCx>-40 && ballCx<CW+40 && (
-        <GummyBearSVG cx={ballCx} cy={ballCy} r={BALL_R} rot={ballRot} color={bearColor} username={ballUser}/>
-      )}
-    </svg>
-  );
-}
-
-// ── Main overlay export ───────────────────────────────────────────────
 export default function CannonBlastOverlay() {
-  const [searchParams]  = useSearchParams();
-  const token           = searchParams.get('token');
-  const [authState,  setAuthState]  = useState('loading');
-  const [userId,     setUserId]     = useState(null);
-  const [state,      setState]      = useState(null);
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token');
+  const [authState, setAuthState] = useState('loading');
+  const [userId,    setUserId]    = useState(null);
+  const [state,     setState]     = useState(null);
 
-  // Force transparent background + remove scrollbars for obs/tls
+  // Force transparent bg for OBS / TikTok Live Studios
   useEffect(() => {
-    document.body.style.background      = 'transparent';
-    document.body.style.margin          = '0';
-    document.body.style.overflow        = 'hidden';
+    document.body.style.background = 'transparent';
+    document.body.style.margin = '0';
+    document.body.style.overflow = 'hidden';
     document.documentElement.style.background = 'transparent';
     document.documentElement.classList.add('overlay-mode');
     return () => {
@@ -199,189 +50,309 @@ export default function CannonBlastOverlay() {
   useEffect(() => {
     if (authState !== 'valid' || !userId) return;
     const ch = supabase.channel(`cannon:${userId}`)
-      .on('broadcast', { event:'state' }, ({ payload }) => setState(payload))
+      .on('broadcast', { event: 'state' }, ({ payload }) => setState(payload))
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [authState, userId]);
 
   if (authState === 'loading') return null;
   if (authState === 'invalid') return (
-    <div style={{ padding:32, color:'#f87171', fontFamily:'monospace', background:'rgba(0,0,0,0.7)',
-      borderRadius:12, display:'inline-block', position:'fixed', top:20, left:20 }}>
+    <div style={{ padding: 32, color: '#f87171', fontFamily: 'monospace',
+      background: 'rgba(0,0,0,0.7)', borderRadius: 12,
+      position: 'fixed', top: 20, left: 20 }}>
       ❌ Invalid overlay token
     </div>
   );
 
   const phase       = state?.phase       ?? 'idle';
-  const currentDist = state?.currentDist ?? 0;
-  const finalScore  = state?.finalScore  ?? 0;
+  const score       = state?.score       ?? 0;
   const bestScore   = state?.bestScore   ?? 0;
+  const rewardLabel = state?.rewardLabel ?? 'Poor';
+  const ballX       = state?.ballX       ?? 0;
+  const ballY       = state?.ballY       ?? 0;
+  const ballRot     = state?.ballRot     ?? 0;
+  const ballUser    = state?.ballUser    ?? null;
+  const camX        = state?.camX        ?? 0;
+  const chargeLevel = state?.chargeLevel ?? 0;
+  const multipliers = state?.multipliers ?? { launch: 1, bombs: 1, power: 1 };
   const activeBoost = state?.activeBoost ?? null;
   const leaderboard = state?.leaderboard ?? [];
   const roundCount  = state?.roundCount  ?? 0;
-  const floorZone   = state?.floorZone   ?? { label:'1×', mult:1 };
   const auctionBids = state?.auctionBids ?? {};
   const auctionWinner = state?.auctionWinner ?? null;
   const showChestPick = state?.showChestPick ?? false;
   const recentGifts = state?.recentGifts ?? [];
+  const markers     = state?.markers     ?? [];
+  const currentMark = state?.currentMark ?? 0;
+
+  const showBall = phase === 'flying' || phase === 'rolling' || phase === 'landed';
+  const worldShift = camX * PX_PER_WU;
+  const PLAT_FRAC = 0.54;
 
   const phaseLabel = {
-    idle:'🎯 READY', auction:'🏆 AUCTION', chest_pick:'🎁 PICK CHEST',
-    charging:'⚡ CHARGING', in_flight:'🚀 LAUNCHED!', rolling:'🏃 ROLLING!', landed:'🏁 LANDED',
+    idle: '🎯 READY', auction: '🏆 AUCTION', chest_pick: '🎁 PICK CHEST',
+    tap_to_shoot: '💥 TAP TO SHOOT', flying: '🚀 LAUNCHED!',
+    rolling: '🏃 ROLLING!', landed: '🏁 LANDED',
   }[phase] ?? phase;
 
   return (
-    // Outer wrapper: transparent bg, full viewport, pointer-events:none so clicks pass through
-    <div style={{ position:'fixed', inset:0, background:'transparent',
-      pointerEvents:'none', fontFamily:"'Arial Black',Impact,sans-serif",
-      display:'flex', flexDirection:'column', alignItems:'center', overflow:'hidden' }}>
+    <div style={{
+      position: 'fixed', inset: 0, background: 'transparent',
+      pointerEvents: 'none', fontFamily: "'Arial Black', Impact, Arial",
+      overflow: 'hidden', color: 'white',
+    }}>
 
-      {/* ── Header row ── */}
-      <div style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center',
-        padding:'14px 18px 6px', pointerEvents:'none' }}>
-        {/* Round badge */}
-        <div style={{ background:'rgba(0,0,0,0.62)', borderRadius:12,
-          border:'2px solid rgba(0,200,100,0.4)', padding:'6px 14px', textAlign:'center' }}>
-          <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', letterSpacing:'0.1em' }}>ROUND</div>
-          <div style={{ fontSize:28, fontWeight:900, color:'#00cc66', lineHeight:1 }}>#{roundCount}</div>
+      {/* ── GAME STRIP — matches the main game visual ── */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0,
+        height: '58vh',
+        overflow: 'hidden',
+      }}>
+        {/* Sky */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(180deg,#72c0e8 0%,#9ed4f0 60%,#bde4f8 100%)',
+        }}/>
+
+        {/* Scrolling world: markers */}
+        <div style={{
+          position: 'absolute', left: CANNON_X, top: 0, bottom: 0, width: 8000,
+          transform: `translateX(${-worldShift}px)`,
+        }}>
+          {markers.filter(m => {
+            const sx = m.worldX - worldShift + CANNON_X;
+            return sx > -60 && sx < 2000;
+          }).map(mk => {
+            const isCurrent = mk.num === currentMark;
+            const platY = window.innerHeight * 0.54 * 0.54;
+            return (
+              <div key={mk.num} style={{
+                position: 'absolute', left: mk.worldX - 22, top: '47%',
+                width: 44, height: 44, borderRadius: '50%',
+                background: isCurrent
+                  ? 'radial-gradient(circle at 35% 35%,#ff99dd,#cc3388 50%,#882255)'
+                  : 'radial-gradient(circle at 35% 35%,#88ee66,#44aa22 50%,#227700)',
+                border: `2.5px solid ${isCurrent ? '#ff44aa' : '#33aa00'}`,
+                boxShadow: '0 3px 8px rgba(0,0,0,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: mk.num > 99 ? 10 : mk.num > 9 ? 12 : 14,
+                fontWeight: 900, color: 'white',
+                textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+              }}>{mk.num}</div>
+            );
+          })}
         </div>
-        {/* Title + phase */}
-        <div style={{ textAlign:'center' }}>
-          <div style={{ color:'#00ee66', fontSize:22, fontWeight:900, textShadow:'0 0 24px rgba(0,238,102,0.6)' }}>
-            💥 CANNON BLAST
-          </div>
-          <div style={{ fontSize:13, color:'rgba(255,255,255,0.55)', fontWeight:400,
-            fontFamily:'sans-serif' }}>{phaseLabel}</div>
+
+        {/* Platform rail */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, top: '54%', height: 22,
+          background: 'linear-gradient(180deg,#cc8030 0%,#a06018 40%,#7a4208 100%)',
+          zIndex: 4,
+        }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3,
+            background: 'rgba(255,200,100,0.3)' }}/>
         </div>
-        {/* Best score */}
-        <div style={{ background:'rgba(0,0,0,0.62)', borderRadius:12,
-          border:'2px solid rgba(255,215,0,0.35)', padding:'6px 14px', textAlign:'center' }}>
-          <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', letterSpacing:'0.1em' }}>BEST</div>
-          <div style={{ fontSize:28, fontWeight:900, color:'#ffd700', lineHeight:1, fontFamily:'monospace' }}>
-            {bestScore > 0 ? bestScore : '—'}
-          </div>
-        </div>
-      </div>
 
-      {/* ── Game canvas strip ── */}
-      <div style={{ width:'98%', borderRadius:16, overflow:'hidden',
-        border:'2px solid rgba(255,255,255,0.12)', margin:'4px 0' }}>
-        <GameStrip state={state}/>
-      </div>
+        {/* Sandy ground */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0, top: 'calc(54% + 22px)', bottom: 0,
+          background: 'linear-gradient(180deg,#d4a858 0%,#a87030 100%)',
+        }}/>
 
-      {/* ── Boost banner ── */}
-      {activeBoost && (
-        <div style={{ background:`linear-gradient(90deg,${activeBoost.color}cc,${activeBoost.color})`,
-          borderRadius:10, padding:'8px 28px', margin:'4px 0',
-          boxShadow:`0 4px 24px ${activeBoost.color}66`, textAlign:'center' }}>
-          <span style={{ fontSize:17, fontWeight:900, color:'#000' }}>
-            {activeBoost.emoji} {activeBoost.label}{activeBoost.user?` from @${activeBoost.user}!`:'!'}
-          </span>
-        </div>
-      )}
+        {/* Cannon (fixed) */}
+        <div style={{
+          position: 'absolute', left: 10, top: 'calc(54% - 28px)', zIndex: 5,
+          fontSize: 40,
+        }}>🔫</div>
 
-      {/* ── Distance / score row ── */}
-      <div style={{ display:'flex', gap:28, alignItems:'center', margin:'6px 0' }}>
-        {(phase==='in_flight'||phase==='rolling'||phase==='landed') && (
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', letterSpacing:'0.1em', fontWeight:400, fontFamily:'sans-serif' }}>DISTANCE</div>
-            <div style={{ fontSize:42, fontWeight:900, color:'#00ddff', fontFamily:'monospace', lineHeight:1,
-              textShadow:'0 0 16px rgba(0,221,255,0.6)' }}>{currentDist}m</div>
-          </div>
-        )}
-        {finalScore > 0 && (
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', letterSpacing:'0.1em', fontWeight:400, fontFamily:'sans-serif' }}>SCORE</div>
-            <div style={{ fontSize:42, fontWeight:900, color:'#ffd700', fontFamily:'monospace', lineHeight:1,
-              textShadow:'0 0 16px rgba(255,215,0,0.6)' }}>{finalScore}</div>
-          </div>
-        )}
-        {(phase==='in_flight'||phase==='rolling') && (
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', letterSpacing:'0.1em', fontWeight:400, fontFamily:'sans-serif' }}>ZONE</div>
-            <div style={{ fontSize:32, fontWeight:900, color:'#88ff88', lineHeight:1 }}>{floorZone?.label??'1×'}</div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Auction panel ── */}
-      {phase === 'auction' && Object.keys(auctionBids).length > 0 && (
-        <div style={{ background:'rgba(0,0,0,0.72)', borderRadius:14,
-          border:'2px solid rgba(255,215,0,0.4)', padding:'10px 14px', width:'90%', margin:'4px 0' }}>
-          <div style={{ color:'#ffd700', fontWeight:900, fontSize:13, textAlign:'center', marginBottom:8 }}>
-            🏆 AUCTION — Highest gifter picks chest!
-          </div>
-          {Object.entries(auctionBids).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([user,coins],i)=>(
-            <div key={user} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:i<4?4:0,
-              background:i===0?'rgba(255,215,0,0.1)':'transparent', borderRadius:6, padding:'3px 8px' }}>
-              <span style={{ fontSize:18 }}>{['🥇','🥈','🥉','4.','5.'][i]}</span>
-              <span style={{ flex:1, fontSize:14, fontWeight:700, color:'white' }}>@{user}</span>
-              <span style={{ color:'#ffd700', fontWeight:900, fontFamily:'monospace' }}>{coins.toLocaleString()} 💎</span>
+        {/* Ball */}
+        {showBall && (() => {
+          const bwPx  = ballX * PX_PER_WU;
+          const bscX  = CANNON_X + (bwPx - worldShift);
+          const bscY  = (window.innerHeight * 0.58 * PLAT_FRAC) - ballY * PX_PER_WU - BALL_R;
+          if (bscX < -30 || bscX > 2000) return null;
+          return (
+            <div style={{
+              position: 'absolute', left: bscX - BALL_R, top: bscY - BALL_R,
+              width: BALL_R*2, height: BALL_R*2, borderRadius: '50%',
+              background: 'radial-gradient(circle at 35% 30%,#888,#2a2a2a 50%,#0d0d0d)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
+              transform: `rotate(${ballRot}deg)`,
+              zIndex: 10,
+            }}>
+              {ballUser && (
+                <div style={{
+                  position: 'absolute', bottom: BALL_R*2+4, left: '50%',
+                  transform: `translateX(-50%) rotate(${-ballRot}deg)`,
+                  background: 'rgba(0,0,0,0.75)', color: 'white',
+                  fontSize: 13, fontWeight: 900, padding: '2px 8px',
+                  borderRadius: 4, whiteSpace: 'nowrap',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}>@{ballUser}</div>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })()}
+      </div>
 
-      {/* ── Chest pick ── */}
-      {showChestPick && auctionWinner && (
-        <div style={{ background:'rgba(0,0,0,0.75)', borderRadius:14,
-          border:'2px solid #ffd700', padding:'12px 18px', width:'90%', margin:'4px 0', textAlign:'center' }}>
-          <div style={{ color:'#ffd700', fontWeight:900, fontSize:14, marginBottom:10 }}>
-            🏆 @{auctionWinner.user} is picking a chest...
+      {/* ── HUD OVERLAYS ── */}
+
+      {/* Score + multipliers (top-left) */}
+      {phase !== 'idle' && phase !== 'auction' && phase !== 'chest_pick' && (
+        <div style={{
+          position: 'absolute', top: 12, left: 12, zIndex: 20,
+          background: 'rgba(240,215,150,0.95)', border: '2px solid #8b5510',
+          borderRadius: 8, padding: '7px 12px',
+          boxShadow: '2px 2px 8px rgba(0,0,0,0.4)', minWidth: 140,
+        }}>
+          <div style={{ fontSize: 16, fontWeight: 900, color: '#222' }}>
+            Score: <span style={{ color: score>100?'#22aa22':score>50?'#aa9900':'#cc5500' }}>{score}</span>
           </div>
-          <div style={{ display:'flex', gap:10, justifyContent:'center', flexWrap:'wrap' }}>
-            {CHEST_TYPES.map(c=>(
-              <div key={c.id} style={{ background:`${c.color}22`, border:`2px solid ${c.color}44`,
-                borderRadius:10, padding:'8px 14px', fontSize:13, color:'white', fontWeight:700 }}>
-                {c.emoji} {c.label}
-              </div>
+          <div style={{ fontSize: 13, color: '#444' }}>
+            Rewards: <span style={{ fontWeight: 700, color: rewardLabel==='Good'?'#228822':'#888822' }}>{rewardLabel}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            {[['🔫', multipliers.launch, '#ff4400'],
+              ['💣', multipliers.bombs,  '#44aa00'],
+              ['⭐', multipliers.power,  '#ff8800']].map(([icon, val, col]) => (
+              <span key={icon} style={{ fontSize: 13, fontWeight: 900, color: col }}>{icon}{val}x</span>
             ))}
           </div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: 'rgba(20,20,40,0.7)',
+            marginTop: 4, lineHeight: 1.1 }}>BALL<br/>GUYS</div>
         </div>
       )}
 
-      {/* ── Recent gifts feed ── */}
-      {recentGifts.length > 0 && (
-        <div style={{ width:'88%', margin:'4px 0' }}>
-          {recentGifts.slice(0,4).map((g,i)=>(
-            <div key={g.ts} style={{ display:'flex', alignItems:'center', gap:8,
-              background:'rgba(0,0,0,0.5)', borderRadius:8, padding:'4px 10px', marginBottom:4,
-              opacity: 1 - i*0.18 }}>
-              <span style={{ fontSize:16 }}>{g.tier.emoji}</span>
-              <span style={{ color:'white', fontWeight:700, fontSize:13 }}>@{g.user}</span>
-              <span style={{ color:g.tier.color, fontWeight:900, fontSize:13, marginLeft:'auto' }}>
-                {g.tier.label}
+      {/* Round + best (corners) */}
+      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 20,
+        display: 'flex', gap: 10 }}>
+        <div style={{ background: 'rgba(0,0,0,0.65)', borderRadius: 10,
+          border: '2px solid rgba(0,200,100,0.4)', padding: '6px 14px', textAlign: 'center' }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>ROUND</div>
+          <div style={{ fontSize: 26, fontWeight: 900, color: '#00cc66' }}>#{roundCount}</div>
+        </div>
+        <div style={{ background: 'rgba(0,0,0,0.65)', borderRadius: 10,
+          border: '2px solid rgba(255,215,0,0.4)', padding: '6px 14px', textAlign: 'center' }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em' }}>BEST</div>
+          <div style={{ fontSize: 26, fontWeight: 900, color: '#ffd700', fontFamily: 'monospace' }}>
+            {bestScore || '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Phase label */}
+      <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+        zIndex: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 22, fontWeight: 900, color: '#00ee66',
+          textShadow: '0 0 20px rgba(0,238,102,0.5)' }}>💥 CANNON BLAST</div>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', fontWeight: 400,
+          fontFamily: 'sans-serif' }}>{phaseLabel}</div>
+      </div>
+
+      {/* Score big display during flight */}
+      {(phase === 'flying' || phase === 'rolling') && (
+        <div style={{ position: 'absolute', top: '62%', right: 16,
+          textAlign: 'right', zIndex: 20 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)',
+            letterSpacing: '0.1em', fontFamily: 'sans-serif', fontWeight: 400 }}>SCORE</div>
+          <div style={{ fontSize: 52, fontWeight: 900, color: '#00ddff',
+            fontFamily: 'monospace', lineHeight: 1,
+            textShadow: '0 0 20px rgba(0,221,255,0.6)' }}>{score}</div>
+        </div>
+      )}
+
+      {/* Boost banner */}
+      {activeBoost && (
+        <div style={{
+          position: 'absolute', bottom: '38%', left: '50%',
+          transform: 'translateX(-50%)',
+          background: activeBoost.color || '#ff6600', color: 'black',
+          fontWeight: 900, fontSize: 18, padding: '8px 28px',
+          borderRadius: 12, boxShadow: `0 4px 20px ${activeBoost.color}99`,
+          whiteSpace: 'nowrap', zIndex: 20,
+        }}>
+          {activeBoost.emoji} {activeBoost.label}{activeBoost.user ? ` from @${activeBoost.user}!` : '!'}
+        </div>
+      )}
+
+      {/* Auction bids */}
+      {phase === 'auction' && Object.keys(auctionBids).length > 0 && (
+        <div style={{ position: 'absolute', bottom: '10%', left: '50%',
+          transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.75)',
+          borderRadius: 14, border: '2px solid rgba(255,215,0,0.4)',
+          padding: '12px 18px', zIndex: 20, minWidth: 300 }}>
+          <div style={{ color: '#ffd700', fontWeight: 900, fontSize: 15,
+            textAlign: 'center', marginBottom: 8 }}>
+            🏆 AUCTION — Highest gifter picks chests!
+          </div>
+          {Object.entries(auctionBids).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([u,c],i)=>(
+            <div key={u} style={{ display:'flex', gap:8, marginBottom:4, alignItems:'center' }}>
+              <span style={{ fontSize:16 }}>{['🥇','🥈','🥉','4.','5.'][i]}</span>
+              <span style={{ flex:1, fontSize:14, fontWeight:700 }}>@{u}</span>
+              <span style={{ color:'#ffd700', fontWeight:900, fontFamily:'monospace' }}>
+                {c.toLocaleString()} 💎
               </span>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Leaderboard ── */}
-      {leaderboard.length > 0 && (
-        <div style={{ width:'90%', background:'rgba(0,0,0,0.6)', borderRadius:14,
-          border:'1px solid rgba(255,215,0,0.2)', padding:'10px 12px', margin:'4px 0 0' }}>
-          <div style={{ fontSize:11, color:'rgba(255,215,0,0.7)', letterSpacing:'0.12em',
-            marginBottom:6, textAlign:'center' }}>🏆 LEADERBOARD</div>
-          {leaderboard.slice(0,5).map((l,i)=>(
-            <div key={l.ts??i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:i<4?4:0,
-              background:i===0?'rgba(255,215,0,0.08)':'transparent', borderRadius:6, padding:'3px 6px' }}>
-              <span style={{ fontSize:16, width:22 }}>{['🥇','🥈','🥉','4.','5.'][i]}</span>
-              <span style={{ flex:1, fontSize:13, fontWeight:700, color:'#fff', overflow:'hidden',
-                textOverflow:'ellipsis', whiteSpace:'nowrap' }}>@{l.user}</span>
-              <span style={{ fontSize:13, fontWeight:900, color:['#ffd700','#c0c0c0','#cd7f32','#aaa','#aaa'][i],
-                fontFamily:'monospace' }}>{l.score}pts</span>
-              <span style={{ fontSize:11, color:'#888', fontFamily:'monospace' }}>{l.dist}m</span>
+      {/* Recent gifts */}
+      {recentGifts.length > 0 && (phase === 'flying' || phase === 'rolling' || phase === 'charging') && (
+        <div style={{ position: 'absolute', bottom: '10%', left: 16, zIndex: 20 }}>
+          {recentGifts.slice(0, 4).map((g, i) => (
+            <div key={g.ts} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'rgba(0,0,0,0.55)', borderRadius: 8,
+              padding: '4px 12px', marginBottom: 4,
+              opacity: 1 - i * 0.2,
+            }}>
+              <span style={{ fontSize: 16 }}>{g.tier.emoji}</span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>@{g.user}</span>
+              <span style={{ color: g.tier.color, fontWeight: 900, fontSize: 13 }}>{g.tier.label}</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Tip ── */}
-      {(phase==='idle'||phase==='auction'||phase==='charging') && (
-        <div style={{ fontSize:13, color:'rgba(255,255,255,0.4)', margin:'8px 0 16px',
-          fontFamily:'sans-serif', fontWeight:400 }}>
-          🎁 Gift to charge the cannon!
+      {/* Leaderboard */}
+      {leaderboard.length > 0 && (
+        <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 20,
+          background: 'rgba(0,0,0,0.65)', borderRadius: 14,
+          border: '1px solid rgba(255,215,0,0.25)', padding: '10px 14px',
+          minWidth: 220 }}>
+          <div style={{ fontSize: 12, color: 'rgba(255,215,0,0.7)',
+            letterSpacing: '0.12em', marginBottom: 6, textAlign: 'center' }}>
+            🏆 LEADERBOARD
+          </div>
+          {leaderboard.slice(0, 5).map((l, i) => (
+            <div key={l.ts ?? i} style={{ display: 'flex', gap: 8, alignItems: 'center',
+              marginBottom: i < 4 ? 4 : 0,
+              background: i === 0 ? 'rgba(255,215,0,0.08)' : 'transparent',
+              borderRadius: 6, padding: '3px 6px' }}>
+              <span style={{ fontSize: 14, width: 22 }}>{['🥇','🥈','🥉','4.','5.'][i]}</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, overflow: 'hidden',
+                textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{l.user}</span>
+              <span style={{ fontSize: 13, fontWeight: 900, fontFamily: 'monospace',
+                color: ['#ffd700','#c0c0c0','#cd7f32','#aaa','#aaa'][i] }}>
+                {l.score}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Landing result */}
+      {phase === 'landed' && (
+        <div style={{ position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%,-50%)',
+          background: 'rgba(0,0,0,0.78)', border: '3px solid #ffd700',
+          borderRadius: 18, padding: '22px 40px', textAlign: 'center', zIndex: 30 }}>
+          <div style={{ color: '#ffd700', fontSize: 20, fontWeight: 900 }}>🏁 LANDED!</div>
+          <div style={{ fontSize: 60, fontWeight: 900, fontFamily: 'monospace', color: 'white' }}>
+            {score}
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Best: {bestScore}</div>
         </div>
       )}
     </div>
