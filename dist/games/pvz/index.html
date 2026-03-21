@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plants vs Zombies — StreamVibe Live</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; font-family: Arial, sans-serif; }
+    #container { width: 950px; overflow: hidden; position: relative; }
+    #bg { margin-left: -100px; }
+    .card { z-index: 10; position: absolute; top: 0; left: 0; cursor: pointer; transition: filter 0.15s; }
+    .card:hover { filter: brightness(1.2); }
+    #score { position: absolute; top: 57px; left: 42px; font-size: 30px; color: black; z-index: 20; }
+
+    /* Gift notification banner */
+    #gift-banner {
+      position: fixed; top: 10px; right: 10px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+    }
+    .gift-toast {
+      background: rgba(0,0,0,0.85); color: white; padding: 8px 14px;
+      border-radius: 10px; font-size: 13px; font-weight: bold;
+      border-left: 4px solid #ffd700; animation: slideIn 0.3s ease;
+      max-width: 220px;
+    }
+    @keyframes slideIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* Wave alert */
+    #wave-alert {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: rgba(180,0,0,0.9); color: white; padding: 16px 32px;
+      border-radius: 16px; font-size: 24px; font-weight: 900; z-index: 9998;
+      display: none; text-align: center; border: 3px solid #ff4444;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+
+    #status-bar {
+      width: 950px; background: #111827; padding: 6px 12px;
+      display: flex; gap: 16px; align-items: center; font-size: 12px; color: #aaa;
+    }
+    .status-item { display: flex; align-items: center; gap: 4px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+    .status-dot.live { background: #22c55e; }
+  </style>
+</head>
+<body ondragstart="return false">
+
+<div id="status-bar">
+  <div class="status-item">
+    <div class="status-dot" id="conn-dot"></div>
+    <span id="conn-label">Not connected</span>
+  </div>
+  <div class="status-item">🧟 Zombies spawned by gifts: <strong id="gift-count">0</strong></div>
+  <div class="status-item">🎁 Last gift: <strong id="last-gift">—</strong></div>
+</div>
+
+<div id="container">
+  <img id="bg" src="images/Background.jpg" alt="">
+  <img class="card" onclick="dragPeashooter(1)" src="images/Peashooter.png" alt="" title="Peashooter (100☀)">
+  <img class="card" onclick="dragPeashooter(2)" style="left:100px" src="images/SnowPea.png" alt="" title="Snow Pea (175☀)">
+  <img class="card" onclick="dragPeashooter(3)" style="left:200px" src="images/SunFlower.png" alt="" title="Sunflower (75☀)">
+  <img class="card" onclick="dragBomb(5)" style="left:300px" src="images/Jalapeno.png" alt="" title="Jalapeno (200☀)">
+  <img class="card" onclick="dragPeashooter(4)" style="left:400px" src="images/Repeater.png" alt="" title="Repeater (200☀)">
+  <img class="card" onclick="dragBomb(6)" style="left:500px" src="images/CherryBomb.png" alt="" title="Cherry Bomb (250☀)">
+  <img class="card" onclick="dragPeashooter(5)" style="left:600px" src="images/GatlingPea.png" alt="" title="Gatling Pea (325☀)">
+  <img class="card" onclick="dragNut(7)" style="left:700px" src="images/TallNut.png" alt="" title="Tall-nut (200☀)">
+  <img class="card" onclick="dragPeashooter(8)" style="left:800px" src="images/TwinSunflower.png" alt="" title="Twin Sunflower (125☀)">
+  <img class="card" style="top:60px;" src="images/SunBack.png">
+  <div id="score">2000</div>
+</div>
+
+<div id="gift-banner"></div>
+<div id="wave-alert"></div>
+
+<script src="sprites.js"></script>
+<script>
+  // ── Game state ─────────────────────────────────────────────────────
+  var zombies = [];
+  var counter = 0;
+  var duration = 1000;
+  var zbIndex = 0;
+  var shooter = [];
+  var nuts = [];
+  var bullets = [];
+  var zbDieNo = 0;
+  var suns = [];
+  var giftZombieCount = 0;
+  var gameActive = true;
+  var div = document.getElementById('score');
+
+  // ── Main loop ──────────────────────────────────────────────────────
+  window.onload = function () {
+    setInterval(() => {
+      if (!gameActive) return;
+      addSprites();
+      spriteStep();
+      onHitting();
+      postGameState();
+    }, 100 / 8);
+  };
+
+  function postGameState() {
+    try {
+      window.parent.postMessage({
+        type: 'pvz_state',
+        score: parseInt(div.innerHTML),
+        zombieCount: zombies.length,
+        giftZombies: giftZombieCount,
+        zbDieNo,
+        gameActive,
+      }, '*');
+    } catch(e) {}
+  }
+
+  // ── Gift zombie spawning (called from parent via postMessage) ──────
+
+  // Zombie types by gift tier:
+  // 'normal'    → Basic zombie (blood: 9)    — small gifts (1-9 coins)
+  // 'conehead'  → Conehead zombie (blood: 29) — medium gifts (10-99 coins)
+  // 'buckethead'→ Buckethead (blood: 49)      — large gifts (100-999 coins)
+  // 'wave'      → Mixed wave of 3-5 zombies   — mega gifts (1000+ coins)
+
+  function spawnGiftZombie(zombieType, username, count) {
+    count = count || 1;
+    for (var i = 0; i < count; i++) {
+      (function(delay) {
+        setTimeout(() => {
+          if (!gameActive) return;
+          var zombie = createZombie('gift_' + Date.now() + '_' + Math.random(), gameOver);
+          // Override the random type with gift-specified type
+          if (zombieType === 'normal') {
+            zombie.blood = 9;
+            zombie.status = 0;
+            zombie.src = 'images/Zombie.gif';
+          } else if (zombieType === 'conehead') {
+            zombie.blood = 29;
+            zombie.status = 3;
+            zombie.src = 'images/ConeheadZombie.gif';
+          } else if (zombieType === 'buckethead') {
+            zombie.blood = 49;
+            zombie.status = 5;
+            zombie.src = 'images/BucketheadZombie.gif';
+          }
+          // Force a random lane
+          zombie.route = Math.floor(Math.random() * 5);
+          zombie.style.top = [30, 130, 230, 330, 430][zombie.route] + 'px';
+          zombie.style.left = '950px';
+          zombies.push(zombie);
+          giftZombieCount++;
+          document.getElementById('gift-count').textContent = giftZombieCount;
+          if (username) {
+            document.getElementById('last-gift').textContent = '@' + username;
+          }
+        }, delay);
+      })(i * 400);
+    }
+
+    // Show toast notification
+    showGiftToast(zombieType, username, count);
+  }
+
+  function showGiftToast(type, username, count) {
+    var emojis = { normal: '🧟', conehead: '🧟‍♂️', buckethead: '🪣', wave: '🌊' };
+    var labels = { normal: 'Normal Zombie', conehead: 'Conehead Zombie', buckethead: 'Buckethead Zombie', wave: 'ZOMBIE WAVE!' };
+    var banner = document.getElementById('gift-banner');
+    var toast = document.createElement('div');
+    toast.className = 'gift-toast';
+    toast.innerHTML = (emojis[type] || '🧟') + ' <strong>' + (username ? '@'+username : 'Gift') + '</strong> spawned ' + count + 'x ' + (labels[type] || type);
+    banner.appendChild(toast);
+    setTimeout(() => { try { banner.removeChild(toast); } catch(e) {} }, 4000);
+  }
+
+  function showWaveAlert(text) {
+    var el = document.getElementById('wave-alert');
+    el.textContent = text;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+  }
+
+  // ── postMessage bridge ─────────────────────────────────────────────
+  window.addEventListener('message', function(e) {
+    var msg = e.data;
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'pvz_gift') {
+      spawnGiftZombie(msg.zombieType, msg.username, msg.count || 1);
+      if (msg.zombieType === 'wave') {
+        showWaveAlert('🌊 ZOMBIE WAVE! @' + msg.username + ' sent a wave!');
+      }
+    }
+    if (msg.type === 'pvz_connected') {
+      document.getElementById('conn-dot').classList.add('live');
+      document.getElementById('conn-label').textContent = 'Live: @' + msg.username;
+    }
+    if (msg.type === 'pvz_disconnected') {
+      document.getElementById('conn-dot').classList.remove('live');
+      document.getElementById('conn-label').textContent = 'Not connected';
+    }
+  });
+
+  // ── Existing game functions (unchanged) ────────────────────────────
+  function score(s) {
+    if (s < 0 && parseInt(div.innerHTML) < -s) return false;
+    div.innerHTML = parseInt(div.innerHTML) + s;
+    return true;
+  }
+
+  function shoot(peashooter) {
+    if (peashooter.type == 3 || peashooter.type == 8) {
+      suns.push(createSun(peashooter, suns.length, sun => {
+        suns = suns.filter(item => item.code != sun.code);
+        container.removeChild(sun);
+        score(50);
+      }));
+    } else {
+      for (var zombie of zombies) {
+        if (zombie.offsetTop < peashooter.offsetTop && zombie.offsetTop > peashooter.offsetTop - 100
+          && zombie.offsetLeft > peashooter.offsetLeft - 50) {
+          bullets.push(createBullet(peashooter, bullets.length, bullet => {
+            bullets = bullets.filter(item => item.code != bullet.code);
+            container.removeChild(bullet);
+          }));
+          break;
+        }
+      }
+    }
+  }
+
+  function ZombieDie(zombie) {
+    setTimeout(() => {
+      try {
+        zombies = zombies.filter(item => item.id != zombie.id);
+        container.removeChild(zombie);
+        zbDieNo++;
+        postGameState();
+        if (zbDieNo > 20 && zbIndex > 20) {
+          alert('You win! Dave\'s brain is safe!');
+          window.location.reload();
+        }
+      } catch(e) {}
+    }, 2300);
+  }
+
+  function boom(jala, type) {
+    if (type == 5) {
+      for (var zombie of zombies) {
+        if (jala.route == zombie.route) {
+          zombie.src = 'images/BoomDie.gif';
+          zombie.blood = 0;
+          ZombieDie(zombie);
+        }
+      }
+    } else if (type == 6) {
+      for (var zombie of zombies) {
+        if (jala.offsetLeft - 150 < zombie.offsetLeft && jala.offsetLeft + 150 > zombie.offsetLeft &&
+          jala.offsetTop - 180 < zombie.offsetTop && jala.offsetTop + 180 > zombie.offsetTop) {
+          zombie.src = 'images/BoomDie.gif';
+          zombie.blood = 0;
+          ZombieDie(zombie);
+        }
+      }
+    }
+  }
+
+  function dragNut(type) {
+    createNut(type, nut => {
+      if (!score(-nut.score)) { container.removeChild(nut); return; }
+      nut.type = 7;
+      shooter.push(nut);
+    });
+  }
+
+  function dragBomb(type) {
+    createBomb(type, bomb => {
+      if (!score(-bomb.score)) { container.removeChild(bomb); return; }
+      if (type == 5) {
+        bomb.src = 'images/Jalapeno.gif';
+        setTimeout(() => {
+          bomb.style.left = '150px'; bomb.style.top = bomb.offsetTop - 40 + 'px';
+          bomb.src = 'images/JalapenoAttack.gif'; boom(bomb, type);
+        }, 700);
+      } else {
+        bomb.src = 'images/CherryBomb.gif';
+        setTimeout(() => {
+          bomb.style.left = bomb.offsetLeft - 50 + 'px'; bomb.style.top = bomb.offsetTop - 40 + 'px';
+          bomb.src = 'images/Boom.gif'; boom(bomb, type);
+        }, 700);
+      }
+      setTimeout(() => { container.removeChild(bomb); }, 1700);
+    });
+  }
+
+  function dragPeashooter(type) {
+    createPeashooter(type, peashooter => {
+      if (!score(-peashooter.score)) { container.removeChild(peashooter); return; }
+      peashooter.timer = setInterval(() => { shoot(peashooter); }, type == 3 || type == 8 ? 4000 : 2000);
+      if (type == 4) { setTimeout(() => { peashooter.timer2 = setInterval(() => shoot(peashooter), 2000); shoot(peashooter); }, 100); }
+      if (type == 5) {
+        [100,200,300].forEach((d,i) => {
+          setTimeout(() => { peashooter['timer'+(3+i)] = setInterval(() => shoot(peashooter), 2000); shoot(peashooter); }, d);
+        });
+      }
+      if (type == 8) { setTimeout(() => { peashooter.timer6 = setInterval(() => shoot(peashooter), 4000); shoot(peashooter); }, 100); }
+      shoot(peashooter);
+      shooter.push(peashooter);
+    });
+  }
+
+  function addSprites() {
+    if (zbIndex > 20) return;
+    counter++;
+    if (parseInt(counter / duration) >= zbIndex) {
+      zombies.push(createZombie(zbIndex, gameOver));
+      if (zbIndex == 2) { duration = 100; counter = duration * zbIndex; }
+      if (zbIndex == 10) { duration = 2000; counter = duration * zbIndex; }
+      if (zbIndex == 11) { duration = 100; counter = duration * zbIndex; }
+      zbIndex++;
+    }
+  }
+
+  function gameOver() {
+    gameActive = false;
+    postGameState();
+    alert('The zombies ate your brains! 🧠');
+    window.location.reload();
+  }
+
+  function spriteStep() {
+    for (var zombie of zombies) zombie.step();
+    for (var bullet of bullets) bullet.step();
+    for (var sun of suns) sun.step();
+  }
+
+  function hitZombie(bullet) {
+    for (var zombie of zombies) {
+      if (bullet.offsetLeft - 70 > zombie.offsetLeft && bullet.offsetLeft - 140 < zombie.offsetLeft && bullet.route == zombie.route) {
+        zombie.blood--;
+        if (bullet.type == 2) zombie.speed = 1;
+        if (zombie.blood == 9) zombie.src = zombie.src.endsWith('Zombie.gif') ? 'images/Zombie.gif' : 'images/ZombieAttack.gif';
+        if (zombie.blood == 0) {
+          var head = createHead(zombie);
+          zombie.src = zombie.src.endsWith('Zombie.gif') ? 'images/ZombieLostHead.gif' : 'images/ZombieLostHeadAttack.gif';
+          setTimeout(() => { zombie.src = 'images/ZombieDie.gif'; container.removeChild(head); }, 1000);
+          ZombieDie(zombie);
+        } else {
+          zombie.style.opacity = 0.7;
+          setTimeout(() => { zombie.style.opacity = 1; }, 100);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function onHitting() {
+    for (var bullet of bullets) {
+      if (hitZombie(bullet)) bullet.src = 'images/BulletHit.gif';
+    }
+    for (var zombie of zombies) {
+      var peashooter = eatPlantBy(zombie);
+      if (peashooter && zombie.src.endsWith('Zombie.gif')) {
+        if (zombie.blood <= 9) zombie.src = 'images/ZombieAttack.gif';
+        else if (zombie.status == 5) zombie.src = 'images/BucketheadZombieAttack.gif';
+        else zombie.src = 'images/ConeheadZombieAttack.gif';
+        peashooter.attack.push(zombie.id);
+      } else if (peashooter && peashooter.blood == 0) {
+        if (peashooter.timer) clearInterval(peashooter.timer);
+        if (peashooter.timer2) clearInterval(peashooter.timer2);
+        shooter.splice(peashooter.index, 1);
+        container.removeChild(peashooter);
+        for (var id of peashooter.attack) {
+          var zz = document.getElementById(id);
+          if (zz && zz.blood <= 9) zz.src = 'images/Zombie.gif';
+          else if (zz && zz.status == 5) zz.src = 'images/BucketheadZombie.gif';
+          else if (zz) zz.src = 'images/ConeheadZombie.gif';
+        }
+      } else if (peashooter) {
+        peashooter.blood--;
+        if (peashooter.type == 7 && peashooter.blood <= 600 && peashooter.blood > 300) peashooter.src = 'images/TallnutCracked1.gif';
+        if (peashooter.type == 7 && peashooter.blood <= 300 && peashooter.blood > 0) peashooter.src = 'images/TallnutCracked2.gif';
+      }
+    }
+  }
+
+  function eatPlantBy(zombie) {
+    for (var i in shooter) {
+      var peashooter = shooter[i];
+      if (peashooter.offsetLeft - 20 > zombie.offsetLeft && peashooter.offsetLeft - 107 < zombie.offsetLeft && peashooter.route == zombie.route) {
+        peashooter.index = i;
+        return peashooter;
+      }
+    }
+    return null;
+  }
+</script>
+</body>
+</html>

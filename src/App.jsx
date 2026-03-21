@@ -36,6 +36,8 @@ import CannonBlastTool  from '@/pages/tools/CannonBlastTool';
 import AuctionOverlay      from '@/pages/tools/AuctionOverlay';
 import LiveWordsOverlay    from '@/pages/tools/LiveWordsOverlay';
 import CannonBlastOverlay  from '@/pages/tools/CannonBlastOverlay';
+import PlantsVsZombiesTool    from '@/pages/tools/PlantsVsZombiesTool';
+import PlantsVsZombiesOverlay from '@/pages/tools/PlantsVsZombiesOverlay';
 
 const OVERLAY_PATHS = ['/overlay', '/games-overlay/'];
 function isOverlayPath(path) {
@@ -58,6 +60,7 @@ function AppInner() {
         <Route path="/overlay"                       element={<AuctionOverlay />} />
         <Route path="/games-overlay/live-words"      element={<LiveWordsOverlay />} />
         <Route path="/games-overlay/cannon-blast"    element={<CannonBlastOverlay />} />
+        <Route path="/games-overlay/plants-vs-zombies" element={<PlantsVsZombiesOverlay />} />
       </Routes>
     );
   }
@@ -90,6 +93,7 @@ function AppInner() {
           <Route path="/tools/overlay-setup"        element={<ProtectedRoute><OverlaySetup /></ProtectedRoute>} />
           <Route path="/tools/games/live-words"     element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
           <Route path="/tools/games/cannon-blast"   element={<ProtectedRoute><CannonBlastTool /></ProtectedRoute>} />
+          <Route path="/tools/games/plants-vs-zombies" element={<ProtectedRoute><PlantsVsZombiesTool /></ProtectedRoute>} />
         </Routes>
       </main>
       <Footer />
@@ -119,3 +123,5 @@ function App() {
 }
 
 export default App;
+
+

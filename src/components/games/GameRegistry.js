@@ -28,6 +28,19 @@ export const GAME_REGISTRY = {
     overlayRoute:      '/games-overlay/cannon-blast',
     available:         true,
   },
+  plants_vs_zombies: {
+    id:                'plants_vs_zombies',
+    name:              'Plants vs Zombies LIVE',
+    tagline:           'Viewers gift coins to spawn zombies — defend your garden!',
+    description:       'The classic tower defense game goes live! TikTok gifts spawn zombies in real time. Bigger gifts = tougher zombies. Place plants to defend!',
+    icon:              '🌻',
+    color:             'green',
+    badge:             'NEW',
+    requiredPlanNames: ['Pro', 'Enterprise', 'pro', 'enterprise'],
+    route:             '/tools/games/plants-vs-zombies',
+    overlayRoute:      '/games-overlay/plants-vs-zombies',
+    available:         true,
+  },
 };
 
 export function getAvailableGames() {
