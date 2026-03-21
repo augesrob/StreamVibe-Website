@@ -284,9 +284,11 @@ export function useCannonEngine() {
       by += vy * DT;
       if (by < 0) by = 0;
 
-      // Camera follows ball (lerp)
-      const targetCam = Math.max(0, bx - 18);
-      camRef.current += (targetCam - camRef.current) * 0.08;
+      // Camera: keep ball ~200px right of cannon on screen
+      // PX_PER_WU matches MARKER_STEP/10 = 8.5px per world unit
+      const CAM_LEAD = 200 / 8.5;  // world units ahead of cannon to show
+      const targetCam = Math.max(0, bx - CAM_LEAD);
+      camRef.current += (targetCam - camRef.current) * 0.07;
 
       vxRef.current = vx; vyRef.current = vy;
       bxRef.current = bx; byRef.current = by; rotRef.current = rot;
