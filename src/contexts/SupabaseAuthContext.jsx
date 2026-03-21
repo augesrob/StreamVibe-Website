@@ -58,6 +58,37 @@ export const AuthProvider = ({ children }) => {
     return { error };
   };
 
+  const signUpWithEmail = async (email, password, metadata = {}) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: metadata,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      toast({ variant: 'destructive', title: 'Sign Up Failed', description: error.message });
+    } else {
+      // Create/update profile row with username if provided
+      if (data.user && metadata.username) {
+        try {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            username: metadata.username,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'id' });
+        } catch (profileErr) {
+          console.warn('Profile upsert failed:', profileErr);
+        }
+      }
+      toast({ title: 'Account created!', description: 'Please check your email to verify your account.' });
+    }
+
+    return { data, error };
+  };
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) toast({ variant: 'destructive', title: 'Error signing out', description: error.message });
@@ -68,6 +99,9 @@ export const AuthProvider = ({ children }) => {
     if (user) await fetchUserPlans(user.id);
   };
 
-  const value = { session, user, loading, isAdmin, userPlans, signIn, signOut, refreshPlans };
+  const value = {
+    session, user, loading, isAdmin, userPlans,
+    signIn, signUpWithEmail, signOut, refreshPlans,
+  };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
