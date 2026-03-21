@@ -9,7 +9,7 @@ import ProfileTab    from '@/components/dashboard/ProfileTab';
 import SettingsTab   from '@/components/dashboard/SettingsTab';
 import CommunityFeed from '@/components/dashboard/CommunityFeed';
 import LiveFeed      from '@/components/dashboard/LiveFeed';
-import FileManager   from '@/components/dashboard/downloads/FileManager';
+import DownloadsTab  from '@/components/dashboard/DownloadsTab';
 import GamesHub      from '@/pages/tools/GamesHub';
 
 // Tool cards
@@ -115,7 +115,7 @@ const Dashboard = () => {
         </TabsContent>
 
         <TabsContent value="downloads">
-          <FileManager />
+          <DownloadsTab />
         </TabsContent>
 
         <TabsContent value="settings">

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { Shield, Users, Key, Loader2, RefreshCw, Copy, CheckCircle, XCircle, Clock,
   CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, ChevronDown, ChevronUp,
-  X, Plus, Save, DollarSign, Star, AlertTriangle, Unlock } from 'lucide-react';
+  X, Plus, Save, DollarSign, Star, AlertTriangle, Unlock, Download, Github, Globe } from 'lucide-react';
 
 const KEY_STATUS_META = {
   inactive: { label: 'Inactive', color: 'text-slate-400', bg: 'bg-slate-800' },
@@ -262,6 +262,11 @@ const AdminPanel = () => {
   const [plans, setPlans]           = useState([]);
   const [paypalOrders, setPaypal]   = useState([]);
   const [toolBans, setToolBans]     = useState([]);
+  const [downloads, setDownloads]   = useState([]);
+  const [loadingDownloads, setLoadingDownloads] = useState(false);
+  const [dlModal, setDlModal]       = useState(null);  // null | 'new' | download_obj
+  const [dlSaving, setDlSaving]     = useState(false);
+  const [dlForm, setDlForm]         = useState({ name:'', description:'', version:'v1.0.0', tier:'basic', github_repo:'', is_github_private:true, is_active:true });
   const [editingUser, setEditingUser]     = useState(null);
   const [loadingUsers, setLoadingUsers]   = useState(false);
   const [loadingKeys, setLoadingKeys]     = useState(false);
@@ -323,6 +328,47 @@ const AdminPanel = () => {
     const { data } = await adminSupabase.from('paypal_orders').select('*, plans(name)').order('created_at', { ascending: false }).limit(500);
     setPaypal(data||[]); setLoadingPaypal(false);
   }, []);
+
+  const loadDownloads = useCallback(async () => {
+    setLoadingDownloads(true);
+    const { data } = await adminSupabase.from('downloads').select('*').order('sort_order', { ascending: true });
+    setDownloads(data||[]); setLoadingDownloads(false);
+  }, []);
+
+  const saveDownload = async () => {
+    setDlSaving(true);
+    if (dlModal === 'new') {
+      const { error } = await adminSupabase.from('downloads').insert([{
+        ...dlForm, sort_order: downloads.length + 1,
+        last_updated: new Date().toISOString().split('T')[0],
+      }]);
+      if (error) { toast({ variant:'destructive', title:'Error', description: error.message }); }
+      else { toast({ title:'Download added' }); loadDownloads(); setDlModal(null); }
+    } else {
+      const { error } = await adminSupabase.from('downloads').update({
+        ...dlForm, last_updated: new Date().toISOString().split('T')[0],
+      }).eq('id', dlModal.id);
+      if (error) { toast({ variant:'destructive', title:'Error', description: error.message }); }
+      else { toast({ title:'Download saved' }); loadDownloads(); setDlModal(null); }
+    }
+    setDlSaving(false);
+  };
+
+  const deleteDownload = async (id) => {
+    const { error } = await adminSupabase.from('downloads').delete().eq('id', id);
+    if (error) toast({ variant:'destructive', title:'Error', description: error.message });
+    else { toast({ title:'Deleted' }); setDownloads(prev => prev.filter(d => d.id !== id)); }
+  };
+
+  const openDlModal = (item) => {
+    if (item === 'new') {
+      setDlForm({ name:'', description:'', version:'v1.0.0', tier:'basic', github_repo:'', is_github_private:true, is_active:true });
+    } else {
+      setDlForm({ name: item.name, description: item.description||'', version: item.version||'v1.0.0',
+        tier: item.tier||'basic', github_repo: item.github_repo||'', is_github_private: item.is_github_private??true, is_active: item.is_active??true });
+    }
+    setDlModal(item);
+  };
 
   const loadBans = useCallback(async () => {
     setLoadingBans(true);
@@ -430,6 +476,7 @@ const AdminPanel = () => {
             <TabsTrigger value="users"    className="data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-300"    onClick={() => { if (!users.length) loadUsers(); }}><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
             <TabsTrigger value="keys"     className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300" onClick={() => { if (!keys.length) loadKeys(); }}><Key className="w-4 h-4 mr-2" />License Keys</TabsTrigger>
             <TabsTrigger value="plans"    className="data-[state=active]:bg-yellow-900/50 data-[state=active]:text-yellow-300"><Star className="w-4 h-4 mr-2" />Plans</TabsTrigger>
+            <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300" onClick={() => { if (!downloads.length) loadDownloads(); }}><Download className="w-4 h-4 mr-2" />Downloads</TabsTrigger>
             <TabsTrigger value="paypal"   className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (!paypalOrders.length) loadPaypal(); }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
             <TabsTrigger value="toolbans" className="data-[state=active]:bg-red-900/50 data-[state=active]:text-red-300"       onClick={() => { if (!toolBans.length) loadBans(); }}><Ban className="w-4 h-4 mr-2" />Tool Bans</TabsTrigger>
           </TabsList>
@@ -570,6 +617,101 @@ const AdminPanel = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* DOWNLOADS */}
+          <TabsContent value="downloads">
+            <Card className="bg-[#12121e] border-slate-800">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-white flex items-center gap-2"><Download className="w-5 h-5 text-cyan-400" />Downloads</CardTitle>
+                  <CardDescription className="text-slate-400">Manage downloadable software</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={loadDownloads} disabled={loadingDownloads} className="border-slate-700 text-slate-400 hover:text-white">
+                    {loadingDownloads ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  </Button>
+                  <Button onClick={() => openDlModal('new')} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />Add Download</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingDownloads ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-cyan-400 animate-spin" /></div>
+                : downloads.length === 0 ? <p className="text-center text-slate-500 py-8">No downloads yet. Click Add Download.</p>
+                : <div className="space-y-3">
+                    {downloads.map(dl => (
+                      <div key={dl.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 flex items-center justify-between px-4 py-3 gap-4">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/20 flex items-center justify-center shrink-0">
+                            <Download className="w-4 h-4 text-cyan-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-white font-semibold text-sm">{dl.name}</p>
+                              <span className="text-xs text-slate-500">{dl.version}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded font-medium capitalize ${TIER_COLORS[dl.tier]||TIER_COLORS.free}`}>{dl.tier}</span>
+                              {!dl.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">{dl.description}</p>
+                            {dl.github_repo && (
+                              <p className="text-xs text-slate-600 mt-0.5 flex items-center gap-1">
+                                <Github className="w-3 h-3" />{dl.github_repo}
+                                {dl.last_updated && <span className="text-slate-700">· Updated {dl.last_updated}</span>}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => openDlModal(dl)}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" onClick={() => deleteDownload(dl.id)}><Trash2 className="w-3 h-3" /></Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>}
+              </CardContent>
+            </Card>
+
+            {/* Download Edit/Add Modal */}
+            {dlModal !== null && (
+              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                <div className="bg-[#12121e] border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-white font-bold text-lg">{dlModal === 'new' ? 'Add Download' : 'Edit Download'}</h2>
+                    <button onClick={() => setDlModal(null)} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+                  </div>
+                  <div className="space-y-3">
+                    <div><label className="text-xs text-slate-500 mb-1 block">Name *</label><Input value={dlForm.name} onChange={e => setDlForm(p=>({...p,name:e.target.value}))} placeholder="StreamVibe Desktop" className="bg-[#060610] border-slate-700 text-white" /></div>
+                    <div><label className="text-xs text-slate-500 mb-1 block">Description</label><Input value={dlForm.description} onChange={e => setDlForm(p=>({...p,description:e.target.value}))} placeholder="Windows desktop app for TikTok LIVE" className="bg-[#060610] border-slate-700 text-white" /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-xs text-slate-500 mb-1 block">Version</label><Input value={dlForm.version} onChange={e => setDlForm(p=>({...p,version:e.target.value}))} placeholder="v1.0.0" className="bg-[#060610] border-slate-700 text-white" /></div>
+                      <div><label className="text-xs text-slate-500 mb-1 block">Required Tier</label>
+                        <select value={dlForm.tier} onChange={e => setDlForm(p=>({...p,tier:e.target.value}))} className="w-full bg-[#060610] border border-slate-700 text-white rounded-md px-3 py-2 text-sm">
+                          {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div><label className="text-xs text-slate-500 mb-1 block">GitHub Repo URL</label><Input value={dlForm.github_repo} onChange={e => setDlForm(p=>({...p,github_repo:e.target.value}))} placeholder="https://github.com/org/repo/releases/latest" className="bg-[#060610] border-slate-700 text-white font-mono text-xs" /></div>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={dlForm.is_github_private} onChange={e => setDlForm(p=>({...p,is_github_private:e.target.checked}))} className="w-4 h-4 rounded" />
+                        <span className="text-sm text-slate-400">Private repo (uses token)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer ml-auto">
+                        <input type="checkbox" checked={dlForm.is_active} onChange={e => setDlForm(p=>({...p,is_active:e.target.checked}))} className="w-4 h-4 rounded" />
+                        <span className="text-sm text-slate-400">Active</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <Button variant="outline" onClick={() => setDlModal(null)} className="flex-1 border-slate-700 text-slate-400">Cancel</Button>
+                    <Button onClick={saveDownload} disabled={dlSaving||!dlForm.name.trim()} className="flex-1 bg-cyan-700 hover:bg-cyan-600 text-white">
+                      {dlSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                      {dlModal === 'new' ? 'Add' : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
 
           {/* PAYPAL */}
           <TabsContent value="paypal">
