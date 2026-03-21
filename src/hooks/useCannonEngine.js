@@ -1,41 +1,45 @@
 /**
- * useCannonEngine v10 — Ball Guys Cannon Mode
- * Pixel-accurate recreation based on actual gameplay screenshots
- *
- * Key mechanics from screenshots:
- * - Ball is a cannonball (dark sphere), not gummy bear
- * - Platform is a wooden fence rail in the middle of screen
- * - Numbered markers on rail act as physical speed bumps/barriers
- * - Green circles = normal markers, Pink/purple = current landing zone
- * - Reward boxes hang below the platform at each marker
- * - Sandy ground below, sky above
- * - Score top-left, multipliers top-left
+ * useCannonEngine v13
+ * Fixes:
+ * 1. Markers sit ON TOP of rail (not half-buried)
+ * 2. Bombs and bouncers placed as DOM objects on platform after chest pick
+ * 3. Chest grid = 9 mystery chests, clicking reveals random boost
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-export const TICK_MS       = 16;
-export const GRAVITY       = 9.8 * 2.5;   // wu/s² (world units)
-export const FRICTION_AIR  = 0.999;
-export const FRICTION_GND  = 0.96;        // strong friction when rolling
-export const BOUNCE_COEFF  = 0.32;        // bounciness on platform hit
-export const BUMP_SLOW     = 0.55;        // speed multiplier when hitting a marker bump
-export const PX_PER_WU     = 10;          // pixels per world unit
+export const TICK_MS      = 16;
+export const GRAVITY      = 9.8 * 2.4;
+export const FRICTION_AIR = 0.999;
+export const FRICTION_GND = 0.965;
+export const BOUNCE_COEFF = 0.3;
+export const BUMP_SLOW    = 0.58;   // speed after hitting marker
+export const MARKER_SPACING_WU = 10; // world units between markers
 
-// Chest multipliers from screenshot (Launch ×3, Bombs ×2, Power ×4)
+// What each chest can contain — randomised per pick
+export const CHEST_REWARDS = [
+  { id:'power3',  label:'Power',   icon:'⭐', color:'#ffdd00', mult:{ power:3 }, desc:'3× launch power'  },
+  { id:'power4',  label:'Power',   icon:'⭐', color:'#ffaa00', mult:{ power:4 }, desc:'4× launch power'  },
+  { id:'bombs2',  label:'Bombs',   icon:'💣', color:'#ff4422', mult:{ bombs:2 }, desc:'2× bombs on field' },
+  { id:'bombs4',  label:'Bombs',   icon:'💣', color:'#cc2200', mult:{ bombs:4 }, desc:'4× bombs on field' },
+  { id:'bounce2', label:'Springs', icon:'🟡', color:'#ffaa00', mult:{ bounce:2}, desc:'2× springs'        },
+  { id:'bounce4', label:'Springs', icon:'🟡', color:'#ff8800', mult:{ bounce:4}, desc:'4× springs'        },
+  { id:'launch3', label:'Launch',  icon:'🔫', color:'#44aaff', mult:{ launch:3}, desc:'3× launches'       },
+];
+
+// Legacy CHEST_PICKS for sign display (still shows 3 possible types)
 export const CHEST_PICKS = [
   { id:'launch',  label:'Launch', icon:'🔫', color:'#e8c44a', mult:3, desc:'3× launch count' },
   { id:'bombs',   label:'Bombs',  icon:'💣', color:'#cc6622', mult:2, desc:'2× bombs'        },
   { id:'power',   label:'Power',  icon:'⭐', color:'#88cc22', mult:4, desc:'4× power'        },
 ];
 
-// Gift tiers → charge fill
 export const GIFT_TIERS = {
-  tiny:   { label:'Rose',     color:'#ff88cc', fill:6,   push:2,  emoji:'🌹', coins:[1,4]          },
-  small:  { label:'Gift',     color:'#00e5ff', fill:12,  push:5,  emoji:'💨', coins:[5,49]          },
-  medium: { label:'Big Gift', color:'#ffd600', fill:25,  push:11, emoji:'⚡', coins:[50,499]         },
-  large:  { label:'Super!',   color:'#ff6d00', fill:42,  push:20, emoji:'🔥', coins:[500,4999]       },
-  mega:   { label:'MEGA!',    color:'#ff1744', fill:75,  push:35, emoji:'💥', coins:[5000,49999]     },
-  ultra:  { label:'ULTRA!',   color:'#ea80fc', fill:100, push:55, emoji:'🌟', coins:[50000,Infinity] },
+  tiny:   { label:'Rose',     color:'#ff88cc', fill:6,   push:2,  emoji:'🌹', coins:[1,4]           },
+  small:  { label:'Gift',     color:'#00e5ff', fill:12,  push:5,  emoji:'💨', coins:[5,49]           },
+  medium: { label:'Big Gift', color:'#ffd600', fill:25,  push:11, emoji:'⚡', coins:[50,499]          },
+  large:  { label:'Super!',   color:'#ff6d00', fill:42,  push:20, emoji:'🔥', coins:[500,4999]        },
+  mega:   { label:'MEGA!',    color:'#ff1744', fill:75,  push:35, emoji:'💥', coins:[5000,49999]      },
+  ultra:  { label:'ULTRA!',   color:'#ea80fc', fill:100, push:55, emoji:'🌟', coins:[50000,Infinity]  },
 };
 export function getGiftTier(coins) {
   for (const [id,t] of Object.entries(GIFT_TIERS))
@@ -43,67 +47,66 @@ export function getGiftTier(coins) {
   return { id:'tiny', ...GIFT_TIERS.tiny };
 }
 
-// Reward box types (from screenshot: diamond purple, gold coin, t-shirt)
+// Reward boxes on platform markers
 const REWARD_POOL = [
-  { type:'diamond', label:'20',   color:'#9933ff', icon:'💎' },
-  { type:'diamond', label:'10',   color:'#9933ff', icon:'💎' },
-  { type:'coin',    label:'$5',   color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$10',  color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$80',  color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$120', color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$145', color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$200', color:'#ddaa00', icon:'$'  },
-  { type:'coin',    label:'$380', color:'#ddaa00', icon:'$'  },
-  { type:'skin',    label:'Common',color:'#44aaff', icon:'👕' },
+  { type:'diamond', label:'20',    bg:'#9922ee', border:'#7700cc', icon:'💎', textCol:'#fff'   },
+  { type:'coin',    label:'$5',    bg:'#f8f8ee', border:'#ccaa00', icon:'$',  textCol:'#885500'},
+  { type:'coin',    label:'$10',   bg:'#f8f8ee', border:'#ccaa00', icon:'$',  textCol:'#885500'},
+  { type:'diamond', label:'10',    bg:'#9922ee', border:'#7700cc', icon:'💎', textCol:'#fff'   },
+  { type:'coin',    label:'$80',   bg:'#f8f8ee', border:'#ccaa00', icon:'$',  textCol:'#885500'},
+  { type:'skin',    label:'Common',bg:'#eef0ff', border:'#8899cc', icon:'👕', textCol:'#334'   },
+  { type:'coin',    label:'$200',  bg:'#f8f8ee', border:'#ccaa00', icon:'$',  textCol:'#885500'},
+  { type:'coin',    label:'$380',  bg:'#f8f8ee', border:'#ccaa00', icon:'$',  textCol:'#885500'},
 ];
-function randReward() { return REWARD_POOL[Math.floor(Math.random()*REWARD_POOL.length)]; }
+function getRewardForMarker(n) { return REWARD_POOL[n % REWARD_POOL.length]; }
 
-// Build marker array — each is a physical bump on the platform
-function buildMarkers(count = 200) {
-  return Array.from({ length: count }, (_, i) => ({
-    num:    i + 1,
-    wx:     (i + 1) * 10,   // 10 world units apart
-    reward: randReward(),
-    hit:    false,           // has ball passed over this?
-  }));
+// Build platform objects: bombs + bouncers placed at world positions
+function buildPlatformObjects(bombCount, bounceCount) {
+  const objs = [];
+  // Bombs spaced along platform
+  const bombPositions = [15, 28, 42, 60, 78, 95, 115, 135, 158, 182, 210, 240];
+  for (let i = 0; i < Math.min(bombCount, bombPositions.length); i++) {
+    objs.push({ id:`bomb_${i}`, type:'bomb', wx: bombPositions[i], active: true });
+  }
+  // Bouncers between bombs
+  const bouncePositions = [22, 35, 50, 68, 88, 108, 130, 155, 180, 208];
+  for (let i = 0; i < Math.min(bounceCount, bouncePositions.length); i++) {
+    objs.push({ id:`bounce_${i}`, type:'bouncer', wx: bouncePositions[i], active: true });
+  }
+  return objs;
 }
 
+// Pre-generate markers (200 of them)
+export const MARKERS = Array.from({ length: 200 }, (_, i) => ({
+  num:    i + 1,
+  wx:     (i + 1) * MARKER_SPACING_WU,
+  reward: getRewardForMarker(i + 1),
+}));
+
 export function useCannonEngine() {
-  // ── Phases ────────────────────────────────────────────────────────────
-  // idle → chest_pick → tap_to_shoot → flying → rolling → landed
-  const [phase,       setPhase]       = useState('idle');
-  const [chestsDone,  setChestsDone]  = useState(false);
-  const [multipliers, setMultipliers] = useState({ launch:1, bombs:1, power:1 });
+  const [phase,        setPhase]        = useState('idle');
+  const [multipliers,  setMultipliers]  = useState({ launch:1, bombs:0, bounce:0, power:1 });
+  const [chargeLevel,  setChargeLevel]  = useState(0);
+  const [ballX,        setBallX]        = useState(0);
+  const [ballY,        setBallY]        = useState(0);
+  const [ballRot,      setBallRot]      = useState(0);
+  const [ballUser,     setBallUser]     = useState(null);
+  const [camX,         setCamX]         = useState(0);
+  const [score,        setScore]        = useState(0);
+  const [bestScore,    setBestScore]    = useState(0);
+  const [rewardLabel,  setRewardLabel]  = useState('Poor');
+  const [currentMark,  setCurrentMark]  = useState(0);
+  const [platObjects,  setPlatObjects]  = useState([]); // bombs + bouncers on platform
+  const [auctionBids,  setAuctionBids]  = useState({});
+  const [auctionWinner,setAuctionWinner]= useState(null);
+  const [showChestPick,setShowChestPick]= useState(false);
+  const [chestsRemain, setChestsRemain] = useState(3);
+  const [pickedChests, setPickedChests] = useState([]); // array of { icon, label, color }
+  const [recentGifts,  setRecentGifts]  = useState([]);
+  const [activeBoost,  setActiveBoost]  = useState(null);
+  const [leaderboard,  setLeaderboard]  = useState([]);
+  const [roundCount,   setRoundCount]   = useState(0);
 
-  // ── Ball physics (world coords) ───────────────────────────────────────
-  const [ballX,       setBallX]       = useState(0);
-  const [ballY,       setBallY]       = useState(0);   // 0 = on platform surface
-  const [ballRot,     setBallRot]     = useState(0);
-  const [ballUser,    setBallUser]    = useState(null);
-  const [camX,        setCamX]        = useState(0);   // camera world-x
-
-  // ── Charge ────────────────────────────────────────────────────────────
-  const [chargeLevel, setChargeLevel] = useState(0);   // 0–100
-
-  // ── Score / markers ───────────────────────────────────────────────────
-  const [score,       setScore]       = useState(0);
-  const [bestScore,   setBestScore]   = useState(0);
-  const [rewardLabel, setRewardLabel] = useState('Fair');
-  const [markers,     setMarkers]     = useState([]);
-  const [currentMark, setCurrentMark] = useState(0);   // current marker number ball is near
-
-  // ── Auction / gifts ───────────────────────────────────────────────────
-  const [auctionBids,   setAuctionBids]   = useState({});
-  const [auctionWinner, setAuctionWinner] = useState(null);
-  const [showChestPick, setShowChestPick] = useState(false);
-  const [chestsRemain,  setChestsRemain]  = useState(3);   // player picks 3 chests
-  const [pickedChests,  setPickedChests]  = useState([]);
-  const [recentGifts,   setRecentGifts]   = useState([]);
-  const [activeBoost,   setActiveBoost]   = useState(null);
-  const [leaderboard,   setLeaderboard]   = useState([]);
-  const [roundCount,    setRoundCount]    = useState(0);
-
-  // ── Refs ──────────────────────────────────────────────────────────────
   const phaseRef   = useRef('idle');
   const vxRef      = useRef(0);
   const vyRef      = useRef(0);
@@ -112,101 +115,104 @@ export function useCannonEngine() {
   const rotRef     = useRef(0);
   const camRef     = useRef(0);
   const chargeRef  = useRef(0);
-  const markersRef = useRef([]);
+  const markHitRef = useRef(new Set()); // marker numbers already hit
+  const objsRef    = useRef([]);
   const tickRef    = useRef(null);
   const userRef    = useRef(null);
-  const multRef    = useRef({ launch:1, bombs:1, power:1 });
+  const multRef    = useRef({ launch:1, bombs:0, bounce:0, power:1 });
 
   const syncPhase = p => { phaseRef.current = p; setPhase(p); };
 
-  // ── Auction ───────────────────────────────────────────────────────────
+  // ── Auction ────────────────────────────────────────────────────────────
   const startAuction = useCallback(() => {
-    setAuctionBids({});
-    setAuctionWinner(null);
-    setShowChestPick(false);
-    setPickedChests([]);
-    setChestsRemain(3);
-    setMultipliers({ launch:1, bombs:1, power:1 });
-    multRef.current = { launch:1, bombs:1, power:1 };
+    setAuctionBids({}); setAuctionWinner(null);
+    setShowChestPick(false); setPickedChests([]); setChestsRemain(3);
+    setMultipliers({ launch:1, bombs:0, bounce:0, power:1 });
+    multRef.current = { launch:1, bombs:0, bounce:0, power:1 };
+    setPlatObjects([]); objsRef.current = [];
     syncPhase('auction');
   }, []);
 
   const endAuction = useCallback(() => {
     setAuctionBids(prev => {
       const entries = Object.entries(prev).sort((a,b) => b[1]-a[1]);
-      if (entries.length > 0) {
-        setAuctionWinner({ user: entries[0][0], coins: entries[0][1] });
-      }
+      if (entries.length > 0) setAuctionWinner({ user: entries[0][0], coins: entries[0][1] });
       setShowChestPick(true);
       syncPhase('chest_pick');
       return prev;
     });
   }, []);
 
-  const pickChest = useCallback((chestId) => {
-    const chest = CHEST_PICKS.find(c => c.id === chestId);
-    if (!chest) return;
-    setPickedChests(prev => [...prev, chestId]);
+  // Pick a chest — each is a mystery, reveals a random CHEST_REWARD
+  const pickChest = useCallback((slotIndex) => {
+    if (phaseRef.current !== 'chest_pick') return;
+    // Pick random reward not already picked
+    const allIds = CHEST_REWARDS.map(r => r.id);
+    const picked = pickedChests.map(p => p.id);
+    const available = CHEST_REWARDS.filter(r => !picked.includes(r.id));
+    const reward = available[Math.floor(Math.random() * available.length)];
+    if (!reward) return;
+
+    const newPicked = [...pickedChests, reward];
+    setPickedChests(newPicked);
+
+    // Apply multiplier
     setMultipliers(prev => {
-      const next = { ...prev, [chestId]: chest.mult };
+      const next = { ...prev };
+      Object.entries(reward.mult).forEach(([k, v]) => { next[k] = (next[k]||0) + v; });
       multRef.current = next;
       return next;
     });
-    setChestsRemain(prev => {
-      const remaining = prev - 1;
-      if (remaining <= 0) {
-        setShowChestPick(false);
-        syncPhase('tap_to_shoot');
-      }
-      return remaining;
-    });
-  }, []);
 
-  // ── Gift processing ───────────────────────────────────────────────────
+    const remaining = chestsRemain - 1;
+    setChestsRemain(remaining);
+
+    if (remaining <= 0) {
+      setShowChestPick(false);
+      // Build platform objects based on final multipliers
+      const m = multRef.current;
+      const objs = buildPlatformObjects(m.bombs || 0, m.bounce || 0);
+      objsRef.current = objs;
+      setPlatObjects(objs);
+      syncPhase('tap_to_shoot');
+    }
+  }, [pickedChests, chestsRemain]);
+
+  // ── Gift processing ────────────────────────────────────────────────────
   const processGift = useCallback((username, coins) => {
     const tier = getGiftTier(coins);
-    // Auction bids
     if (phaseRef.current === 'auction') {
       setAuctionBids(prev => ({ ...prev, [username]: (prev[username]||0) + coins }));
     }
-    // Gift feed
     setRecentGifts(prev => [{ user:username, tier, ts:Date.now() }, ...prev.slice(0,6)]);
-    // Charge during tap_to_shoot
     if (phaseRef.current === 'tap_to_shoot') {
       chargeRef.current = Math.min(100, chargeRef.current + tier.fill);
       setChargeLevel(chargeRef.current);
       if (chargeRef.current >= 100) setTimeout(() => shoot(username), 300);
     }
-    // Push during flight
     if (phaseRef.current === 'flying' || phaseRef.current === 'rolling') {
-      vxRef.current += tier.push * 0.3 * (multRef.current.power || 1);
-      userRef.current = username;
-      setBallUser(username);
-      setActiveBoost({ emoji: tier.emoji, label: `@${username} ${tier.label}`, color: tier.color });
+      vxRef.current += tier.push * 0.28 * Math.max(1, multRef.current.power || 1);
+      userRef.current = username; setBallUser(username);
+      setActiveBoost({ emoji: tier.emoji, label:`@${username} ${tier.label}`, color: tier.color });
       setTimeout(() => setActiveBoost(null), 2500);
     }
   }, []);
 
-  // ── Shoot ─────────────────────────────────────────────────────────────
+  // ── Shoot ──────────────────────────────────────────────────────────────
   const shoot = useCallback((username) => {
-    if (phaseRef.current !== 'tap_to_shoot' && phaseRef.current !== 'flying') return;
+    if (phaseRef.current !== 'tap_to_shoot') return;
     const m = multRef.current;
-    const chargePct = Math.max(0.3, chargeRef.current / 100);
-    const basePow = 55 * chargePct * (m.power || 1);
-    const angle = 38 * Math.PI / 180;
-    vxRef.current = basePow * Math.cos(angle);
-    vyRef.current = basePow * Math.sin(angle);
-    bxRef.current = 0;
-    byRef.current = 0;
-    rotRef.current = 0;
-    camRef.current = 0;
+    const pct = Math.max(0.3, chargeRef.current / 100);
+    const spd = 52 * pct * Math.max(1, m.power || 1);
+    const ang = 40 * Math.PI / 180;
+    vxRef.current = spd * Math.cos(ang);
+    vyRef.current = spd * Math.sin(ang);
+    bxRef.current = 0; byRef.current = 0; rotRef.current = 0; camRef.current = 0;
+    markHitRef.current = new Set();
     if (username) { userRef.current = username; setBallUser(username); }
     syncPhase('flying');
-    chargeRef.current = 0;
-    setChargeLevel(0);
+    chargeRef.current = 0; setChargeLevel(0);
     setBallX(0); setBallY(0); setBallRot(0); setCamX(0);
-    // Reset markers hit state
-    markersRef.current = markersRef.current.map(m => ({ ...m, hit: false }));
     startPhysics();
   }, []);
 
@@ -214,7 +220,7 @@ export function useCannonEngine() {
     if (phaseRef.current === 'tap_to_shoot') shoot(null);
   }, [shoot]);
 
-  // ── Physics tick ──────────────────────────────────────────────────────
+  // ── Physics tick ────────────────────────────────────────────────────────
   const startPhysics = () => {
     if (tickRef.current) clearInterval(tickRef.current);
     const DT = TICK_MS / 1000;
@@ -223,95 +229,87 @@ export function useCannonEngine() {
       const ph = phaseRef.current;
       if (ph !== 'flying' && ph !== 'rolling') { clearInterval(tickRef.current); return; }
 
-      let vx = vxRef.current;
-      let vy = vyRef.current;
-      let bx = bxRef.current;
-      let by = byRef.current;
+      let vx = vxRef.current, vy = vyRef.current;
+      let bx = bxRef.current, by = byRef.current;
       let rot = rotRef.current;
 
-      // Gravity (only when above platform)
+      // Gravity
       if (by > 0 || vy > 0) vy -= GRAVITY * DT;
 
-      // Platform collision (by = 0 is platform surface)
+      // Platform hit
       if (by + vy * DT <= 0) {
         by = 0;
-        if (Math.abs(vy) > 3) {
-          vy = Math.abs(vy) * BOUNCE_COEFF;
-          vx *= 0.88;
-        } else {
-          vy = 0;
-          if (ph === 'flying') syncPhase('rolling');
-        }
+        if (Math.abs(vy) > 3) { vy = Math.abs(vy) * BOUNCE_COEFF; vx *= 0.88; }
+        else { vy = 0; if (ph === 'flying') syncPhase('rolling'); }
       }
 
-      // Marker bump physics — each numbered circle acts as a speed bump
-      const markers = markersRef.current;
-      let hitAny = false;
-      for (let i = 0; i < markers.length; i++) {
-        const mk = markers[i];
-        if (mk.hit) continue;
-        const dx = bx - mk.wx;
-        if (Math.abs(dx) < 1.8 && by <= 1.5) {
-          // Ball hit this marker — slow it down significantly
+      // ── Marker speed bumps ──
+      const hitSet = markHitRef.current;
+      for (const mk of MARKERS) {
+        if (hitSet.has(mk.num)) continue;
+        if (bx >= mk.wx - 1.5 && bx <= mk.wx + 1.5 && by <= 1.5) {
           vx *= BUMP_SLOW;
-          if (vx < 0.5) vx = 0;
-          // Small upward kick from bump
-          if (by <= 0.5) vy = Math.max(vy, 4);
-          markers[i] = { ...mk, hit: true };
-          hitAny = true;
+          if (vx < 0.3) vx = 0;
+          if (by <= 0.4) vy = Math.max(vy, 3.5); // small hop over bump
+          hitSet.add(mk.num);
           setCurrentMark(mk.num);
           break;
         }
       }
-      if (hitAny) {
-        markersRef.current = [...markers];
-        setMarkers([...markers]);
+
+      // ── Platform objects (bombs + bouncers) ──
+      const objs = objsRef.current;
+      let newObjs = null;
+      for (let i = 0; i < objs.length; i++) {
+        const o = objs[i];
+        if (!o.active) continue;
+        if (Math.abs(bx - o.wx) < 2.0 && by <= 2.0) {
+          if (o.type === 'bomb') {
+            // Bomb: big forward push + upward blast
+            vx += 18; vy = Math.max(vy, 14);
+            setActiveBoost({ emoji:'💥', label:'BOMB BLAST!', color:'#ff4400' });
+            setTimeout(() => setActiveBoost(null), 1500);
+          } else {
+            // Bouncer: launch ball upward
+            vy = Math.max(vy, 20); vx += 3;
+            setActiveBoost({ emoji:'🟡', label:'SPRING BOOST!', color:'#ffaa00' });
+            setTimeout(() => setActiveBoost(null), 1500);
+          }
+          if (!newObjs) newObjs = [...objs];
+          newObjs[i] = { ...o, active: false };
+          break;
+        }
       }
+      if (newObjs) { objsRef.current = newObjs; setPlatObjects(newObjs); }
 
       // Rolling friction
-      if (ph === 'rolling') {
-        vx *= FRICTION_GND;
-        by = 0; vy = 0;
-      }
-
-      // Horizontal air resistance
+      if (ph === 'rolling') { vx *= FRICTION_GND; by = 0; vy = 0; }
       if (ph === 'flying') vx *= FRICTION_AIR;
 
-      // Rotation
       rot += vx * 15 * DT;
-
-      bx += vx * DT;
-      by += vy * DT;
+      bx += vx * DT; by += vy * DT;
       if (by < 0) by = 0;
 
-      // Camera: keep ball ~200px right of cannon on screen
-      // PX_PER_WU matches MARKER_STEP/10 = 8.5px per world unit
-      const CAM_LEAD = 200 / 8.5;  // world units ahead of cannon to show
+      // Camera — keep ball ~250px from cannon edge
+      const CAM_LEAD = 250 / 8.5;
       const targetCam = Math.max(0, bx - CAM_LEAD);
-      camRef.current += (targetCam - camRef.current) * 0.07;
+      camRef.current += (targetCam - camRef.current) * 0.08;
 
       vxRef.current = vx; vyRef.current = vy;
       bxRef.current = bx; byRef.current = by; rotRef.current = rot;
 
       const sc = Math.round(bx);
-      setBallX(parseFloat(bx.toFixed(2)));
-      setBallY(parseFloat(by.toFixed(2)));
-      setBallRot(parseFloat(rot.toFixed(1)));
-      setCamX(parseFloat(camRef.current.toFixed(2)));
+      setBallX(parseFloat(bx.toFixed(2))); setBallY(parseFloat(by.toFixed(2)));
+      setBallRot(parseFloat(rot.toFixed(1))); setCamX(parseFloat(camRef.current.toFixed(2)));
       setScore(sc);
-      if (sc > 100) setRewardLabel('Good');
-      else if (sc > 50) setRewardLabel('Fair');
-      else setRewardLabel('Poor');
+      setRewardLabel(sc > 100 ? 'Good' : sc > 50 ? 'Fair' : 'Poor');
 
-      // Stop condition
-      if (ph === 'rolling' && Math.abs(vx) < 0.15) {
+      // Stop
+      if (ph === 'rolling' && Math.abs(vx) < 0.12) {
         clearInterval(tickRef.current);
-        const finalScore = sc;
-        setBestScore(prev => Math.max(prev, finalScore));
-        setLeaderboard(prev => {
-          const e = { user: userRef.current ?? 'viewer', score: finalScore, ts: Date.now() };
-          return [e, ...prev].sort((a,b)=>b.score-a.score).slice(0,10);
-        });
+        setBestScore(p => Math.max(p, sc));
+        setLeaderboard(p => [{ user: userRef.current??'viewer', score:sc, ts:Date.now() }, ...p]
+          .sort((a,b)=>b.score-a.score).slice(0,10));
         syncPhase('landed');
         setTimeout(() => resetRound(), 5000);
       }
@@ -320,15 +318,15 @@ export function useCannonEngine() {
 
   const resetRound = useCallback(() => {
     if (tickRef.current) clearInterval(tickRef.current);
-    vxRef.current = 0; vyRef.current = 0;
-    bxRef.current = 0; byRef.current = 0;
-    camRef.current = 0; rotRef.current = 0;
+    vxRef.current=0; vyRef.current=0; bxRef.current=0; byRef.current=0;
+    camRef.current=0; rotRef.current=0; markHitRef.current=new Set();
     setBallX(0); setBallY(0); setBallRot(0); setCamX(0);
-    setScore(0); setCurrentMark(0);
-    setMultipliers({ launch:1, bombs:1, power:1 });
-    multRef.current = { launch:1, bombs:1, power:1 };
-    chargeRef.current = 0; setChargeLevel(0);
-    setBallUser(null); userRef.current = null;
+    setScore(0); setCurrentMark(0); setRewardLabel('Poor');
+    setMultipliers({ launch:1, bombs:0, bounce:0, power:1 });
+    multRef.current = { launch:1, bombs:0, bounce:0, power:1 };
+    chargeRef.current=0; setChargeLevel(0);
+    setBallUser(null); userRef.current=null;
+    setPlatObjects([]); objsRef.current=[];
     setRoundCount(p => p+1);
     syncPhase('idle');
   }, []);
@@ -336,24 +334,16 @@ export function useCannonEngine() {
   const startNewRound = useCallback(() => {
     if (phaseRef.current !== 'idle' && phaseRef.current !== 'landed') return;
     resetRound();
-    setTimeout(() => startAuction(), 100);
+    setTimeout(() => startAuction(), 80);
   }, [resetRound, startAuction]);
-
-  // Init markers once
-  useEffect(() => {
-    const m = buildMarkers(300);
-    markersRef.current = m;
-    setMarkers(m);
-  }, []);
 
   useEffect(() => () => { if (tickRef.current) clearInterval(tickRef.current); }, []);
 
   return {
     phase, multipliers, chargeLevel, ballX, ballY, ballRot, ballUser,
-    camX, score, bestScore, rewardLabel, markers, currentMark,
+    camX, score, bestScore, rewardLabel, currentMark, platObjects,
     auctionBids, auctionWinner, showChestPick, chestsRemain, pickedChests,
-    recentGifts, activeBoost, leaderboard, roundCount, chestsDone,
-    // actions
+    recentGifts, activeBoost, leaderboard, roundCount,
     processGift, startAuction, endAuction, pickChest,
     shoot, tapToShoot, startNewRound, resetRound,
   };
