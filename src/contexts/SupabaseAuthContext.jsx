@@ -67,11 +67,9 @@ export const AuthProvider = ({ children }) => {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-
     if (error) {
       toast({ variant: 'destructive', title: 'Sign Up Failed', description: error.message });
     } else {
-      // Create/update profile row with username if provided
       if (data.user && metadata.username) {
         try {
           await supabase.from('profiles').upsert({
@@ -79,13 +77,10 @@ export const AuthProvider = ({ children }) => {
             username: metadata.username,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'id' });
-        } catch (profileErr) {
-          console.warn('Profile upsert failed:', profileErr);
-        }
+        } catch (_) {}
       }
       toast({ title: 'Account created!', description: 'Please check your email to verify your account.' });
     }
-
     return { data, error };
   };
 
@@ -99,9 +94,6 @@ export const AuthProvider = ({ children }) => {
     if (user) await fetchUserPlans(user.id);
   };
 
-  const value = {
-    session, user, loading, isAdmin, userPlans,
-    signIn, signUpWithEmail, signOut, refreshPlans,
-  };
+  const value = { session, user, loading, isAdmin, userPlans, signIn, signUpWithEmail, signOut, refreshPlans };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
