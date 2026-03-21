@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { Shield, Users, Key, Loader2, RefreshCw, Copy, CheckCircle, XCircle, Clock,
   CreditCard, Search, Edit2, Ban, RotateCcw, Trash2, Monitor, ChevronDown, ChevronUp,
-  X, Plus, Save, DollarSign, Star, AlertTriangle, Unlock, Download, Github, Globe } from 'lucide-react';
+  X, Plus, Save, DollarSign, Star, AlertTriangle, Unlock, Download, Github, Globe, MessageSquare } from 'lucide-react';
+import AdminForumSettings from '@/components/forum/AdminForumSettings';
 
 const KEY_STATUS_META = {
   inactive: { label: 'Inactive', color: 'text-slate-400', bg: 'bg-slate-800' },
@@ -479,6 +480,7 @@ const AdminPanel = () => {
             <TabsTrigger value="downloads" className="data-[state=active]:bg-cyan-900/50 data-[state=active]:text-cyan-300" onClick={() => { if (!downloads.length) loadDownloads(); }}><Download className="w-4 h-4 mr-2" />Downloads</TabsTrigger>
             <TabsTrigger value="paypal"   className="data-[state=active]:bg-emerald-900/50 data-[state=active]:text-emerald-300" onClick={() => { if (!paypalOrders.length) loadPaypal(); }}><CreditCard className="w-4 h-4 mr-2" />PayPal</TabsTrigger>
             <TabsTrigger value="toolbans" className="data-[state=active]:bg-red-900/50 data-[state=active]:text-red-300"       onClick={() => { if (!toolBans.length) loadBans(); }}><Ban className="w-4 h-4 mr-2" />Tool Bans</TabsTrigger>
+            <TabsTrigger value="forum" className="data-[state=active]:bg-purple-900/50 data-[state=active]:text-purple-300"><MessageSquare className="w-4 h-4 mr-2" />Forum</TabsTrigger>
           </TabsList>
 
           {/* USERS */}
@@ -794,6 +796,11 @@ const AdminPanel = () => {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* FORUM ADMIN */}
+          <TabsContent value="forum">
+            <AdminForumSettings />
           </TabsContent>
         </Tabs>
       </div>
