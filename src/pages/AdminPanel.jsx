@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { adminSupabase } from '@/lib/adminSupabaseClient';
+import BulkAddTimeDialog from '@/components/admin/BulkAddTimeDialog';
+import BulkStatusDialog  from '@/components/admin/BulkStatusDialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -569,7 +571,17 @@ const AdminPanel = () => {
             </Card>
             <Card className="bg-[#12121e] border-slate-800">
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <CardTitle className="text-white">All License Keys</CardTitle>
+                <div>
+                  <CardTitle className="text-white">All License Keys</CardTitle>
+                  {selectedKeys.length > 0 && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span className="text-xs text-purple-400 font-semibold">{selectedKeys.length} selected</span>
+                      <Button size="sm" className="h-7 text-xs bg-green-900/40 border border-green-800 text-green-400 hover:bg-green-900" onClick={() => setBulkTimeOpen(true)}><Clock className="w-3 h-3 mr-1" />Add Time</Button>
+                      <Button size="sm" className="h-7 text-xs bg-blue-900/40 border border-blue-800 text-blue-400 hover:bg-blue-900" onClick={() => setBulkStatusOpen(true)}><Edit2 className="w-3 h-3 mr-1" />Change Status</Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-500" onClick={() => setSelectedKeys([])}><X className="w-3 h-3 mr-1" />Clear</Button>
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <div className="relative"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><Input placeholder="Search..." value={keySearch} onChange={e => setKeySearch(e.target.value)} className="pl-9 bg-[#0d0d1a] border-slate-700 text-white w-48" /></div>
                   <Button size="sm" variant="outline" onClick={loadKeys} disabled={loadingKeys} className="border-slate-700 text-slate-400 hover:text-white">{loadingKeys ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
@@ -579,12 +591,27 @@ const AdminPanel = () => {
                 {loadingKeys ? <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-purple-400 animate-spin" /></div>
                 : keys.length===0 ? <div className="text-center py-12"><p className="text-slate-500">Click Refresh to load keys.</p><Button variant="outline" className="mt-4 border-slate-700 text-slate-400" onClick={loadKeys}>Load Keys</Button></div>
                 : <div className="space-y-2">
+                    {/* Select all */}
+                    <div className="flex items-center gap-2 px-2 pb-1 border-b border-slate-800 mb-1">
+                      <input type="checkbox"
+                        checked={filteredKeys.length > 0 && selectedKeys.length === filteredKeys.length}
+                        onChange={e => setSelectedKeys(e.target.checked ? filteredKeys.map(k=>k.id) : [])}
+                        className="w-4 h-4 rounded accent-purple-500"
+                      />
+                      <span className="text-xs text-slate-500">Select all ({filteredKeys.length})</span>
+                    </div>
                     {filteredKeys.map(k => {
                       const sm = KEY_STATUS_META[k.status]||KEY_STATUS_META.inactive;
                       const expanded = expandedKey===k.id;
+                      const isSelected = selectedKeys.includes(k.id);
                       return (
-                        <div key={k.id} className="border border-slate-800 rounded-lg overflow-hidden">
+                        <div key={k.id} className={`border rounded-lg overflow-hidden ${isSelected ? 'border-purple-700 bg-purple-950/10' : 'border-slate-800'}`}>
                           <div className="flex items-center gap-3 px-4 py-3 bg-[#0d0d1a] hover:bg-[#10101c] cursor-pointer" onClick={() => setExpandedKey(expanded?null:k.id)}>
+                            <input type="checkbox" className="w-4 h-4 rounded accent-purple-500 shrink-0"
+                              checked={isSelected}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => setSelectedKeys(prev => e.target.checked ? [...prev, k.id] : prev.filter(id => id !== k.id))}
+                            />
                             <span className="font-mono text-xs text-white flex-1">{k.key_code}</span>
                             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline', sm.bg, sm.color)}>{sm.label}</span>
                             <span className="text-xs text-slate-600 hidden md:inline"><Monitor className="w-3 h-3 inline mr-1" />{k.hwid_device_count||0}/{k.max_devices||5}</span>
@@ -614,6 +641,20 @@ const AdminPanel = () => {
                   </div>}
               </CardContent>
             </Card>
+
+            {/* Bulk Dialogs */}
+            <BulkAddTimeDialog
+              open={bulkTimeOpen}
+              onOpenChange={setBulkTimeOpen}
+              keyIds={selectedKeys}
+              onSuccess={() => { setSelectedKeys([]); loadKeys(); }}
+            />
+            <BulkStatusDialog
+              open={bulkStatusOpen}
+              onOpenChange={setBulkStatusOpen}
+              keyIds={selectedKeys}
+              onSuccess={() => { setSelectedKeys([]); loadKeys(); }}
+            />
           </TabsContent>
 
           {/* PLANS */}
