@@ -307,6 +307,9 @@ const AdminPanel = () => {
   const [genCount, setGenCount]           = useState(1);
   const [genPlanId, setGenPlanId]         = useState('');
   const [keySearch, setKeySearch]         = useState('');
+  const [selectedKeys,   setSelectedKeys]   = useState([]);
+  const [bulkTimeOpen,   setBulkTimeOpen]   = useState(false);
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [userSearch, setUserSearch]       = useState('');
   const [paypalSearch, setPaypalSearch]   = useState('');
   const [showPlanModal, setShowPlanModal] = useState(false);
