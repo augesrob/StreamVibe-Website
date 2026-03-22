@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
-import { Check, Loader2, CheckCircle2, ArrowRight, Key, Sparkles, Zap, Star, Crown, Gift, Clock, ExternalLink } from 'lucide-react';
+import { Check, Loader2, CheckCircle2, ArrowRight, Key, Sparkles, Zap, Star, Crown, Gift, Clock, ExternalLink, Monitor, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { callEdgeFunctionWithTimeout } from '@/lib/edge-functions';
 import PayPalCheckoutOfficial from '@/components/PayPalCheckoutOfficial';
@@ -38,6 +38,10 @@ const Billing = () => {
   const [redeeming, setRedeeming] = useState(false);
   const [interval, setInterval]   = useState('monthly');
   const [buyingPlan, setBuyingPlan] = useState(null); // plan object for PayPal dialog
+  const [userKeys, setUserKeys]       = useState([]);
+
+  // Derived: HWID add-on plans (custom_note = 'Add-on')
+  const addonPlans = plans.filter(p => p.custom_note === 'Add-on' && p.max_devices != null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate('/login');
@@ -45,8 +49,12 @@ const Billing = () => {
 
   const loadData = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('plans').select('*').order('sort_order');
-    setPlans(data || []);
+    const [{ data: plansData }, { data: keysData }] = await Promise.all([
+      supabase.from('plans').select('*').order('sort_order'),
+      supabase.from('license_keys').select('id,key_code,max_devices,hwid_device_count,status,expires_at').eq('user_id', user.id).eq('status','active'),
+    ]);
+    setPlans(plansData || []);
+    setUserKeys(keysData || []);
     await refreshPlans();
     setLoading(false);
   }, [user]);
@@ -91,6 +99,31 @@ const Billing = () => {
       : plans.find(p => p.tier === tier && p.billing_interval === interval)
         || plans.find(p => p.tier === tier); // fallback to any interval
 
+  // Called by PayPal after successful addon purchase — stacks max_devices onto all active keys
+  const handleAddonPurchase = async (addonPlan) => {
+    if (!addonPlan?.max_devices || userKeys.length === 0) {
+      toast({ title: 'Add-on purchased!', description: 'No active key found to apply devices to. Contact support.' });
+      loadData();
+      return;
+    }
+    // Apply to the first active key (most recent)
+    const key = userKeys[0];
+    const newMax = (key.max_devices || 5) + addonPlan.max_devices;
+    const { error } = await supabase
+      .from('license_keys')
+      .update({ max_devices: newMax })
+      .eq('id', key.id);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error applying add-on', description: error.message });
+    } else {
+      toast({
+        title: 'Device slots added!',
+        description: key.key_code + ' now allows up to ' + newMax + ' devices.',
+      });
+      loadData();
+    }
+  };
+
   if (authLoading || loading) return (
     <div className="min-h-screen pt-24 flex items-center justify-center bg-[#08080f]">
       <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
@@ -121,6 +154,7 @@ const Billing = () => {
                 currency="USD" planName={buyingPlan.name}
                 planInterval={buyingPlan.billing_interval}
                 className="w-full"
+                onSuccess={buyingPlan._isAddon ? () => { setBuyingPlan(null); handleAddonPurchase(buyingPlan); } : undefined}
               />
             </DialogFooter>
           </DialogContent>
@@ -238,6 +272,58 @@ const Billing = () => {
             })}
           </div>
         </div>
+
+        {/* HWID Device Slot Add-ons */}
+        {addonPlans.length > 0 && (
+          <div>
+            <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+              <Monitor className="w-5 h-5 text-cyan-400" />Device Slot Add-ons
+            </h2>
+            <p className="text-slate-500 text-sm mb-4">
+              Stack extra device slots onto your existing license key. Purchases are permanent and cumulative.
+            </p>
+            {userKeys.length > 0 && (
+              <div className="bg-[#0d0d1a] border border-slate-800 rounded-xl px-4 py-3 mb-4 flex items-center gap-3 text-sm">
+                <Monitor className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span className="text-slate-400">Active key:</span>
+                <span className="font-mono text-white">{userKeys[0].key_code}</span>
+                <span className="text-slate-500">·</span>
+                <span className="text-slate-400">{userKeys[0].hwid_device_count || 0} / <span className="text-cyan-400 font-bold">{userKeys[0].max_devices || 5}</span> devices used</span>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {addonPlans.sort((a,b) => a.max_devices - b.max_devices).map(plan => (
+                <Card key={plan.id} className="bg-[#0d0d1a] border border-cyan-900/40 flex flex-col hover:border-cyan-600/60 transition-all">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-2xl">🖥️</span>
+                      <div>
+                        <p className="font-bold text-white text-sm">{plan.name}</p>
+                        <p className="text-xs text-cyan-400">+{plan.max_devices} device slot{plan.max_devices !== 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                    <p className="text-2xl font-extrabold text-white">${plan.price}</p>
+                    <p className="text-xs text-slate-500">one-time · permanent</p>
+                  </CardHeader>
+                  <CardContent className="flex-grow pb-2">
+                    <p className="text-xs text-slate-400">
+                      Adds {plan.max_devices} permanent device slot{plan.max_devices !== 1 ? 's' : ''} to your active license key.
+                      {userKeys.length > 0 && (
+                        <span className="text-cyan-400"> New limit: {(userKeys[0].max_devices || 5) + plan.max_devices} devices.</span>
+                      )}
+                    </p>
+                  </CardContent>
+                  <CardFooter>
+                    <Button onClick={() => setBuyingPlan({...plan, _isAddon: true})}
+                      className="w-full text-xs bg-cyan-900/30 hover:bg-cyan-900/60 border border-cyan-800 text-cyan-300 font-bold">
+                      <Plus className="w-3 h-3 mr-1" />Add {plan.max_devices} Slot{plan.max_devices !== 1 ? 's' : ''}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Redeem Key */}
         <Card className="bg-[#12121e] border-slate-800">
