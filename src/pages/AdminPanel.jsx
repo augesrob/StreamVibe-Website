@@ -243,6 +243,7 @@ function PlanEditModal({ plan, onClose, onSaved, toast }) {
               <select value={form.tier} onChange={e => setField('tier', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
                 {TIERS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
               </select></div>
+            <div><label className="text-xs text-slate-500 mb-1 block">Extra Device Slots</label><input type="number" min={1} value={planForm.max_devices||''} onChange={e => setPlanForm(p => ({...p, max_devices: e.target.value ? parseInt(e.target.value) : null}))} placeholder="Leave blank for normal plans" className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm" /></div>
             <div><label className="text-xs text-slate-500 mb-1 block">Billing Interval</label>
               <select value={form.billing_interval} onChange={e => setField('billing_interval', e.target.value)} className="w-full h-9 px-3 rounded-md border border-slate-700 bg-[#060610] text-white text-sm">
                 {INTERVALS.map(i => <option key={i} value={i}>{i.charAt(0).toUpperCase()+i.slice(1)}</option>)}
@@ -428,6 +429,14 @@ const AdminPanel = () => {
     if (!error) { toast({ title: `${newKeys.length} key(s) generated` }); loadStats(); if (keys.length > 0) loadKeys(); }
     else toast({ variant: 'destructive', title: 'Error', description: error.message });
     setGenerating(false);
+  };
+
+  const updateKeyMaxDevices = async (keyId, val) => {
+    const n = parseInt(val);
+    if (isNaN(n) || n < 1) return;
+    const { error } = await adminSupabase.from('license_keys').update({ max_devices: n }).eq('id', keyId);
+    if (error) toast({ variant:'destructive', title:'Error', description: error.message });
+    else { toast({ title:'Max devices updated to ' + n }); loadKeys(); }
   };
 
   const updateKeyStatus = async (id, status) => {
@@ -627,7 +636,17 @@ const AdminPanel = () => {
                           {expanded && (
                             <div className="px-4 py-3 bg-[#08080f] border-t border-slate-800 space-y-3">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                <div><span className="text-slate-500">Devices</span><p className="text-white">{k.hwid_device_count||0}/{k.max_devices||5}</p></div>
+                                <div>
+                                  <span className="text-slate-500 block mb-1">Max Devices</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <input type="number" min={1} max={99} defaultValue={k.max_devices||5}
+                                      onBlur={e => { if (parseInt(e.target.value) !== (k.max_devices||5)) updateKeyMaxDevices(k.id, e.target.value); }}
+                                      onKeyDown={e => { if (e.key==='Enter') { updateKeyMaxDevices(k.id, e.target.value); e.target.blur(); }}}
+                                      className="w-14 bg-[#12121e] border border-slate-700 text-white text-xs rounded px-2 py-1 focus:border-cyan-600 outline-none"
+                                    />
+                                    <span className="text-slate-600">/ used: {k.hwid_device_count||0}</span>
+                                  </div>
+                                </div>
                                 <div><span className="text-slate-500">IP</span><p className="text-white font-mono">{k.ip_address||'N/A'}</p></div>
                                 <div><span className="text-slate-500">Expires</span><p className="text-white">{k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}</p></div>
                                 <div><span className="text-slate-500">Redeemed</span><p className="text-white">{k.redeemed_at ? new Date(k.redeemed_at).toLocaleDateString() : 'No'}</p></div>
@@ -729,6 +748,42 @@ const AdminPanel = () => {
                 </CardContent>
               </Card>
             )}
+
+            {/* HWID Add-on Plans */}
+            <Card className="bg-[#12121e] border-slate-800">
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs px-2.5 py-1 rounded-full font-bold border text-cyan-300 border-cyan-800 bg-cyan-900/20">Add-ons</span>
+                  <CardTitle className="text-white text-base">HWID Device Slots</CardTitle>
+                  <span className="text-xs text-slate-500">purchasable on top of any plan</span>
+                </div>
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white border border-slate-700"
+                  onClick={() => { setEditingPlan({tier:'free', name:'', price:0, billing_interval:'one_time', duration_days:null, max_devices:1, features:[], is_active:true, custom_note:'Add-on', _new:true}); setShowPlanModal(true); }}>
+                  <Plus className="w-3 h-3 mr-1" />Add Slot Plan
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-slate-500 mb-3">These plans add extra device slots to a user's existing license key. Shown on the billing page below the main plans.</p>
+                {plans.filter(p => p.custom_note === 'Add-on' || p.max_devices != null && p.tier === 'free').length === 0
+                  ? <p className="text-slate-600 text-xs italic text-center py-4">No add-on plans yet. Run the SQL migration first.</p>
+                  : plans.filter(p => p.custom_note === 'Add-on' || (p.max_devices != null && p.tier === 'free')).sort((a,b)=>(a.max_devices||0)-(b.max_devices||0)).map(p => (
+                    <div key={p.id} className="bg-[#0d0d1a] rounded-lg border border-cyan-900/30 flex items-center justify-between px-4 py-2.5 gap-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">🖥️</span>
+                        <div>
+                          <p className="text-white font-semibold text-sm">{p.name}</p>
+                          <p className="text-xs text-slate-500">${p.price} one-time · +{p.max_devices} device slot{p.max_devices!==1?'s':''}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true); }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" onClick={() => deletePlan(p.id)}><Trash2 className="w-3 h-3" /></Button>
+                      </div>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
 
             {/* Add new plan button */}
             <Button onClick={() => { setEditingPlan(null); setShowPlanModal(true); }} className="w-full bg-[#12121e] border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500">
