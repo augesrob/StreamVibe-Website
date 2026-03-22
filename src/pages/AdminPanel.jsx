@@ -484,6 +484,10 @@ const AdminPanel = () => {
           <div className="p-2 bg-cyan-950/50 rounded-lg border border-cyan-900/50"><Shield className="w-6 h-6 text-cyan-400" /></div>
           <div><h1 className="text-2xl font-bold text-white">Admin Panel</h1><p className="text-slate-500 text-sm">StreamVibe management console</p></div>
           <Badge className="ml-2 bg-cyan-900/50 text-cyan-400 border-cyan-800">Admin</Badge>
+          <Button size="sm" variant="ghost" className="ml-auto text-slate-400 hover:text-white border border-slate-700 text-xs gap-1.5"
+            onClick={() => window.open('/api-docs','_blank')}>
+            <Monitor className="w-3.5 h-3.5" />API Docs
+          </Button>
         </div>
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
@@ -660,33 +664,76 @@ const AdminPanel = () => {
             />
           </TabsContent>
 
-          {/* PLANS */}
-          <TabsContent value="plans">
-            <Card className="bg-[#12121e] border-slate-800">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div><CardTitle className="text-white flex items-center gap-2"><Star className="w-5 h-5 text-yellow-400" />Plans</CardTitle><CardDescription className="text-slate-400">Manage subscription plans</CardDescription></div>
-                <Button onClick={() => { setEditingPlan(null); setShowPlanModal(true); }} className="bg-cyan-700 hover:bg-cyan-600 text-white"><Plus className="w-4 h-4 mr-2" />New Plan</Button>
-              </CardHeader>
-              <CardContent>
-                {plans.length===0 ? <p className="text-center text-slate-500 py-8">No plans yet.</p>
-                : <div className="space-y-2">{plans.map(p => (
-                    <div key={p.id} className="bg-[#0d0d1a] rounded-xl border border-slate-800 overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize shrink-0', TIER_COLORS[p.tier]||TIER_COLORS.free)}>{p.tier}</span>
-                          <div className="min-w-0"><p className="text-white font-semibold text-sm truncate">{p.name}</p><p className="text-xs text-slate-500">${p.price} / {p.billing_interval} / {p.duration_days?p.duration_days+' days':'lifetime'}</p></div>
+                    {/* PLANS */}
+          <TabsContent value="plans" className="space-y-6">
+            {/* Tier Group Bulk Editor */}
+            {['basic','pro','legend'].map(tier => {
+              const tierPlans = plans.filter(p => p.tier === tier);
+              if (tierPlans.length === 0) return null;
+              const TIER_LABEL = { basic:'Basic', pro:'Pro', legend:'Legend' }[tier];
+              const TIER_COLOR = { basic:'text-blue-300 border-blue-800 bg-blue-900/20', pro:'text-purple-300 border-purple-800 bg-purple-900/20', legend:'text-yellow-300 border-yellow-800 bg-yellow-900/20' }[tier];
+              return (
+                <Card key={tier} className="bg-[#12121e] border-slate-800">
+                  <CardHeader className="flex flex-row items-center justify-between pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className={cn('text-xs px-2.5 py-1 rounded-full font-bold border capitalize', TIER_COLOR)}>{TIER_LABEL}</span>
+                      <CardTitle className="text-white text-base">{TIER_LABEL} Plans</CardTitle>
+                      <span className="text-xs text-slate-500">{tierPlans.length} variants</span>
+                    </div>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white border border-slate-700"
+                      onClick={() => { setEditingPlan({tier, name:'', price:0, billing_interval:'monthly', duration_days:30, features:[], is_active:true, _new:true}); setShowPlanModal(true); }}>
+                      <Plus className="w-3 h-3 mr-1" />Add Variant
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {tierPlans.sort((a,b) => (a.price||0)-(b.price||0)).map(p => (
+                      <div key={p.id} className="bg-[#0d0d1a] rounded-lg border border-slate-800 flex items-center justify-between px-4 py-2.5 gap-4">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="min-w-0">
+                            <p className="text-white font-semibold text-sm">{p.name}</p>
+                            <p className="text-xs text-slate-500">${p.price} / {p.billing_interval}{p.duration_days ? ` / ${p.duration_days}d` : ' / lifetime'}</p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 ml-3 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           {!p.is_active && <Badge className="bg-slate-800 text-slate-500 text-xs">Inactive</Badge>}
                           <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => { setEditingPlan(p); setShowPlanModal(true); }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
                           <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500 hover:text-red-400" disabled={deletingPlanId===p.id} onClick={() => deletePlan(p.id)}>{deletingPlanId===p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}</Button>
                         </div>
                       </div>
-                      {p.features?.length>0 && <div className="px-4 pb-3 flex flex-wrap gap-1.5">{p.features.map((f,i) => <span key={i} className="text-[11px] bg-slate-800/80 text-slate-400 px-2 py-0.5 rounded-full">{f}</span>)}</div>}
+                    ))}
+                    {/* Bulk Edit Features for whole tier */}
+                    <BulkTierFeatureEditor tier={tier} plans={tierPlans} onRefresh={loadPlans} toast={toast} />
+                  </CardContent>
+                </Card>
+              );
+            })}
+
+            {/* Free plan + others */}
+            {plans.filter(p => !['basic','pro','legend'].includes(p.tier)).length > 0 && (
+              <Card className="bg-[#12121e] border-slate-800">
+                <CardHeader><CardTitle className="text-white text-base">Other Plans</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  {plans.filter(p => !['basic','pro','legend'].includes(p.tier)).map(p => (
+                    <div key={p.id} className="bg-[#0d0d1a] rounded-lg border border-slate-800 flex items-center justify-between px-4 py-2.5">
+                      <div>
+                        <span className={cn('text-xs px-2 py-0.5 rounded font-medium capitalize mr-2', TIER_COLORS[p.tier]||TIER_COLORS.free)}>{p.tier}</span>
+                        <span className="text-white text-sm font-medium">{p.name}</span>
+                        <span className="text-slate-500 text-xs ml-2">${p.price}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400" onClick={() => { setEditingPlan(p); setShowPlanModal(true); }}><Edit2 className="w-3 h-3 mr-1" />Edit</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => deletePlan(p.id)}><Trash2 className="w-3 h-3" /></Button>
+                      </div>
                     </div>
-                  ))}</div>}
-              </CardContent>
-            </Card>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Add new plan button */}
+            <Button onClick={() => { setEditingPlan(null); setShowPlanModal(true); }} className="w-full bg-[#12121e] border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500">
+              <Plus className="w-4 h-4 mr-2" />New Plan
+            </Button>
           </TabsContent>
 
           {/* DOWNLOADS */}
@@ -876,5 +923,75 @@ const AdminPanel = () => {
     </div>
   );
 };
+
+
+// ── BulkTierFeatureEditor ─────────────────────────────────────────────
+// Lets admin set features list for ALL plans in a tier at once
+function BulkTierFeatureEditor({ tier, plans, onRefresh, toast }) {
+  const [open, setOpen] = React.useState(false);
+  const [features, setFeatures] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+
+  const openEditor = () => {
+    // Pre-fill with first plan's features
+    const sample = plans[0]?.features || [];
+    setFeatures(sample.join('\n'));
+    setOpen(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const featArr = features.split('\n').map(f => f.trim()).filter(Boolean);
+    // Update ALL plans in this tier
+    const updates = plans.map(p =>
+      adminSupabase.from('plans').update({ features: featArr }).eq('id', p.id)
+    );
+    const results = await Promise.all(updates);
+    const errors = results.filter(r => r.error);
+    if (errors.length) {
+      toast({ variant:'destructive', title:'Some updates failed', description: errors[0].error.message });
+    } else {
+      toast({ title:'Features updated', description: `Applied to all ${plans.length} ${tier} plan variants.` });
+      setOpen(false);
+      onRefresh();
+    }
+    setSaving(false);
+  };
+
+  return (
+    <>
+      <button onClick={openEditor}
+        className="w-full mt-2 text-xs text-slate-500 hover:text-cyan-400 border border-dashed border-slate-800 hover:border-cyan-800 rounded-lg py-2 transition-colors flex items-center justify-center gap-2">
+        <span>⚡</span> Bulk Edit Features for all {tier} variants ({plans.length} plans)
+      </button>
+      {open && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#12121e] border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-bold text-lg capitalize">Edit {tier} Features</h2>
+              <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-white">✕</button>
+            </div>
+            <p className="text-xs text-slate-500">One feature per line. Will apply to ALL {plans.length} {tier} plan variants.</p>
+            <textarea
+              value={features}
+              onChange={e => setFeatures(e.target.value)}
+              rows={10}
+              placeholder={"Access to all tools\nTikTok LIVE integration\nUnlimited overlays\n..."}
+              className="w-full bg-[#060610] border border-slate-700 text-white rounded-lg px-3 py-2 text-sm resize-y outline-none focus:border-cyan-700"
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setOpen(false)}
+                className="flex-1 py-2 rounded-lg border border-slate-700 text-slate-400 text-sm hover:text-white">Cancel</button>
+              <button onClick={save} disabled={saving}
+                className="flex-1 py-2 rounded-lg bg-cyan-700 hover:bg-cyan-600 text-white text-sm font-bold disabled:opacity-50">
+                {saving ? 'Saving...' : `Apply to all ${plans.length} plans`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export default AdminPanel;
