@@ -68,12 +68,11 @@ function UserEditModal({ user, plans, onClose, onSaved, onRefresh, toast }) {
     // 2. Auto-generate and link a license key for this plan
     const keyCode = generateKeyCode();
     const { error: keyError } = await adminSupabase.from('license_keys').insert({
-      key_code:    keyCode,
-      user_id:     user.id,
-      plan_id:     grantPlanId,
-      status:      'active',
-      is_lifetime: isLifetime,
-      expires_at:  expires,
+      key_code:   keyCode,
+      user_id:    user.id,
+      plan_id:    grantPlanId,
+      status:     'active',
+      expires_at: expires,
     });
     if (keyError) {
       // Plan was granted but key failed — warn but don't block
