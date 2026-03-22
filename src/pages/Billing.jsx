@@ -39,6 +39,7 @@ const Billing = () => {
   const [interval, setInterval]   = useState('monthly');
   const [buyingPlan, setBuyingPlan] = useState(null); // plan object for PayPal dialog
   const [userKeys, setUserKeys]       = useState([]);
+  const [bonusDevices, setBonusDevices] = useState(0);
 
   // Derived: HWID add-on plans (custom_note = 'Add-on')
   const addonPlans = plans.filter(p => p.custom_note === 'Add-on' && p.max_devices != null);
@@ -49,12 +50,14 @@ const Billing = () => {
 
   const loadData = useCallback(async () => {
     if (!user) return;
-    const [{ data: plansData }, { data: keysData }] = await Promise.all([
+    const [{ data: plansData }, { data: keysData }, { data: profileData }] = await Promise.all([
       supabase.from('plans').select('*').order('sort_order'),
       supabase.from('license_keys').select('id,key_code,max_devices,hwid_device_count,status,expires_at').eq('user_id', user.id).eq('status','active'),
+      supabase.from('profiles').select('bonus_devices').eq('id', user.id).single(),
     ]);
     setPlans(plansData || []);
     setUserKeys(keysData || []);
+    setBonusDevices(profileData?.bonus_devices || 0);
     await refreshPlans();
     setLoading(false);
   }, [user]);
@@ -99,26 +102,22 @@ const Billing = () => {
       : plans.find(p => p.tier === tier && p.billing_interval === interval)
         || plans.find(p => p.tier === tier); // fallback to any interval
 
-  // Called by PayPal after successful addon purchase — stacks max_devices onto all active keys
+  // Called by PayPal after successful addon purchase — permanently adds to account (profiles.bonus_devices)
   const handleAddonPurchase = async (addonPlan) => {
-    if (!addonPlan?.max_devices || userKeys.length === 0) {
-      toast({ title: 'Add-on purchased!', description: 'No active key found to apply devices to. Contact support.' });
-      loadData();
-      return;
-    }
-    // Apply to the first active key (most recent)
-    const key = userKeys[0];
-    const newMax = (key.max_devices || 5) + addonPlan.max_devices;
+    if (!addonPlan?.max_devices) { loadData(); return; }
+    // Fetch current bonus_devices from profile
+    const { data: profile } = await supabase
+      .from('profiles').select('bonus_devices').eq('id', user.id).single();
+    const current = profile?.bonus_devices || 0;
+    const newTotal = current + addonPlan.max_devices;
     const { error } = await supabase
-      .from('license_keys')
-      .update({ max_devices: newMax })
-      .eq('id', key.id);
+      .from('profiles').update({ bonus_devices: newTotal }).eq('id', user.id);
     if (error) {
       toast({ variant: 'destructive', title: 'Error applying add-on', description: error.message });
     } else {
       toast({
-        title: 'Device slots added!',
-        description: key.key_code + ' now allows up to ' + newMax + ' devices.',
+        title: addonPlan.max_devices + ' device slot' + (addonPlan.max_devices !== 1 ? 's' : '') + ' added to your account!',
+        description: 'You now have ' + newTotal + ' permanent bonus slot' + (newTotal !== 1 ? 's' : '') + ' across all your keys.',
       });
       loadData();
     }
@@ -282,15 +281,21 @@ const Billing = () => {
             <p className="text-slate-500 text-sm mb-4">
               Stack extra device slots onto your existing license key. Purchases are permanent and cumulative.
             </p>
-            {userKeys.length > 0 && (
-              <div className="bg-[#0d0d1a] border border-slate-800 rounded-xl px-4 py-3 mb-4 flex items-center gap-3 text-sm">
+            <div className="bg-[#0d0d1a] border border-slate-800 rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="text-slate-400">Active key:</span>
-                <span className="font-mono text-white">{userKeys[0].key_code}</span>
-                <span className="text-slate-500">·</span>
-                <span className="text-slate-400">{userKeys[0].hwid_device_count || 0} / <span className="text-cyan-400 font-bold">{userKeys[0].max_devices || 5}</span> devices used</span>
+                <span className="text-slate-400">Account bonus slots:</span>
+                <span className="text-cyan-400 font-bold text-base">+{bonusDevices}</span>
               </div>
-            )}
+              {userKeys.length > 0 && (
+                <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
+                  <span className="text-slate-400">Active key:</span>
+                  <span className="font-mono text-white text-xs">{userKeys[0].key_code}</span>
+                  <span className="text-slate-500">·</span>
+                  <span className="text-slate-400">{userKeys[0].hwid_device_count || 0} / <span className="text-cyan-400 font-bold">{(userKeys[0].max_devices || 5) + bonusDevices}</span> effective slots</span>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {addonPlans.sort((a,b) => a.max_devices - b.max_devices).map(plan => (
                 <Card key={plan.id} className="bg-[#0d0d1a] border border-cyan-900/40 flex flex-col hover:border-cyan-600/60 transition-all">
@@ -308,9 +313,7 @@ const Billing = () => {
                   <CardContent className="flex-grow pb-2">
                     <p className="text-xs text-slate-400">
                       Adds {plan.max_devices} permanent device slot{plan.max_devices !== 1 ? 's' : ''} to your active license key.
-                      {userKeys.length > 0 && (
-                        <span className="text-cyan-400"> New limit: {(userKeys[0].max_devices || 5) + plan.max_devices} devices.</span>
-                      )}
+                      <span className="text-cyan-400"> Bonus total after purchase: +{bonusDevices + plan.max_devices} slots on your account.</span>
                     </p>
                   </CardContent>
                   <CardFooter>
