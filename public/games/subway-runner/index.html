@@ -21,8 +21,6 @@
   }
   #progress-full  { height:100%; width:0%; background:#7c3aed; border-radius:3px; transition:width 0.3s; }
   #loading-pct    { font-size:11px; color:#6b7280; }
-
-  /* Gift flash overlay */
   #gift-flash {
     position:fixed; top:60px; left:50%; transform:translateX(-50%);
     z-index:100; pointer-events:none;
@@ -41,93 +39,135 @@
 <body>
 
 <canvas id="unity-canvas" tabindex="-1"></canvas>
-
 <div id="loading-wrap">
   <div class="logo">STREAMVIBE</div>
   <div class="title">RUNNER</div>
   <div id="progress-empty"><div id="progress-full"></div></div>
   <div id="loading-pct">Loading... 0%</div>
 </div>
-
 <div id="gift-flash"></div>
 
-<script src="4399.z.js"></script>
 <script>
-  // ── Gift event labels & colours ──────────────────────────────────────────
-  const EVT = {
-    spawn_coins: { label:'Coins! 🪙',       color:'#ffd700' },
-    jetpack:     { label:'JETPACK! 🚀',     color:'#ff9f43' },
-    magnet:      { label:'Magnet! 🧲',      color:'#74b9ff' },
-    sneakers:    { label:'Sneakers! 👟',    color:'#55efc4' },
-    hoverboard:  { label:'Hoverboard! 🛹', color:'#fd79a8' },
-    x2_score:    { label:'×2 Score! ✕2',   color:'#a29bfe' },
-    add_life:    { label:'+1 Life! ♥',     color:'#fd79a8' },
-    clear_track: { label:'Track Cleared!', color:'#fdcb6e' },
-  };
+// ── CRITICAL: Stub all Poki bridge functions BEFORE any SDK or Unity loads ──
+// The Unity WASM calls window.initPokiBridge() immediately on startup.
+// Without this stub the game crashes with "initPokiBridge is not a function".
+window.initPokiBridge = function(bridge) {
+  try {
+    // Provide no-op implementations for every method Unity might call
+    var noop = function() {};
+    var noopTrue = function() { return true; };
+    var methods = [
+      'gameLoadingStart','gameLoadingFinished','gameInteractive',
+      'gameplayStart','gameplayStop','roundStart','roundEnd',
+      'rewardedBreak','commercialBreak','happyTime','customEvent',
+      'shareableURL','setDebug','logError','sendHighscore',
+      'gameLoadingProgress','setPlayerAge','disableProgrammatic',
+      'muteAd','destroyAd','getLeaderboard'
+    ];
+    methods.forEach(function(m) {
+      if (bridge && !bridge[m]) bridge[m] = noop;
+    });
+    // Store for Unity to call back into
+    window._pokiBridge = bridge;
+  } catch(e) {}
+};
 
-  let flashTimer = null;
-  function flash(label, color) {
-    const el = document.getElementById('gift-flash');
-    el.textContent = label;
-    el.style.color = color;
-    el.style.textShadow = '0 0 20px ' + color;
-    el.classList.remove('show');
-    void el.offsetWidth;
-    el.classList.add('show');
-    if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => el.classList.remove('show'), 2400);
-  }
+// Also stub PokiSDK globally so sdk init doesn't crash
+window.PokiSDK = window.PokiSDK || {
+  init: function() { return Promise.resolve(); },
+  gameLoadingStart: function() {},
+  gameLoadingFinished: function() {},
+  gameInteractive: function() {},
+  gameplayStart: function() {},
+  gameplayStop: function() {},
+  roundStart: function() {},
+  roundEnd: function() {},
+  commercialBreak: function() { return Promise.resolve(false); },
+  rewardedBreak: function() { return Promise.resolve(false); },
+  happyTime: function() {},
+  customEvent: function() {},
+  disableProgrammatic: function() {},
+  muteAd: function() {},
+  destroyAd: function() {},
+  setDebug: function() {},
+  logError: function() {},
+  sendHighscore: function() {},
+  gameLoadingProgress: function() {},
+  getLeaderboard: function() { return Promise.resolve({}); },
+};
 
-  // ── Listen for gift events from the StreamVibe React dashboard ───────────
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'sv_gift') return;
-    const evt = e.data.event;
-    const meta = EVT[evt];
-    if (meta) flash(meta.label, meta.color);
-    // Forward to Unity if loaded (Unity can optionally handle it too)
-    if (window.unityInstance) {
-      try { window.unityInstance.SendMessage('GameManager', 'OnTikTokGift', evt); } catch (_) {}
-    }
-  });
-
-  // ── Unity loader ─────────────────────────────────────────────────────────
-  window.config = {
-    loader: 'unity',
-    debug: false,
-    maxRatio: 16 / 9,
-    minRatio: 9 / 16,
-    title: 'Subway Surfers: San Francisco',
-    unityVersion: '2019.4.18f1',
-    unityWebglBuildUrl: 'Build/SanFrancisco/SanFrancisco.json',
-    fileSize: 35,
-    cachedDecompressedFileSizes: {
-      'SanFrancisco.asm.code.unityweb':      9077143,
-      'SanFrancisco.asm.framework.unityweb': 86369,
-      'SanFrancisco.asm.memory.unityweb':    951447,
-      'SanFrancisco.data.unityweb':          18323917,
-      'SanFrancisco.wasm.code.unityweb':     7279617,
-      'SanFrancisco.wasm.framework.unityweb':90693,
-    },
-  };
+// Stub showUnitywebNoSupport which UnityLoader calls on error
+window.showUnitywebNoSupport = function() {};
 </script>
 
-<script src="poki-sdk-core-v2.234.2.js"></script>
-<script src="poki-sdk.js"></script>
-<script>if (window.PokiSDK) PokiSDK.init().catch(function(){});</script>
+<script src="4399.z.js"></script>
+
+<script>
+// ── Gift event flash ──────────────────────────────────────────────────────
+var EVT = {
+  spawn_coins: { label:'Coins! 🪙',       color:'#ffd700' },
+  jetpack:     { label:'JETPACK! 🚀',     color:'#ff9f43' },
+  magnet:      { label:'Magnet! 🧲',      color:'#74b9ff' },
+  sneakers:    { label:'Sneakers! 👟',    color:'#55efc4' },
+  hoverboard:  { label:'Hoverboard! 🛹', color:'#fd79a8' },
+  x2_score:    { label:'×2 Score! ✕2',   color:'#a29bfe' },
+  add_life:    { label:'+1 Life! ♥',     color:'#fd79a8' },
+  clear_track: { label:'Track Cleared!', color:'#fdcb6e' },
+};
+var flashTimer = null;
+function flash(label, color) {
+  var el = document.getElementById('gift-flash');
+  el.textContent = label; el.style.color = color;
+  el.style.textShadow = '0 0 20px ' + color;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(function(){ el.classList.remove('show'); }, 2400);
+}
+
+window.addEventListener('message', function(e) {
+  if (!e.data || e.data.type !== 'sv_gift') return;
+  var meta = EVT[e.data.event];
+  if (meta) flash(meta.label, meta.color);
+  if (window.unityInstance) {
+    try { window.unityInstance.SendMessage('GameManager','OnTikTokGift', e.data.event); } catch(_) {}
+  }
+});
+
+// ── Unity config ──────────────────────────────────────────────────────────
+window.config = {
+  loader: 'unity',
+  debug: false,
+  maxRatio: 16 / 9,
+  minRatio: 9 / 16,
+  title: 'Subway Surfers: San Francisco',
+  unityVersion: '2019.4.18f1',
+  unityWebglBuildUrl: 'Build/SanFrancisco/SanFrancisco.json',
+  fileSize: 35,
+  cachedDecompressedFileSizes: {
+    'SanFrancisco.asm.code.unityweb':      9077143,
+    'SanFrancisco.asm.framework.unityweb': 86369,
+    'SanFrancisco.asm.memory.unityweb':    951447,
+    'SanFrancisco.data.unityweb':          18323917,
+    'SanFrancisco.wasm.code.unityweb':     7279617,
+    'SanFrancisco.wasm.framework.unityweb':90693,
+  },
+};
+</script>
+
 <script src="UnityLoader.2019.2.js"></script>
 <script>
-  var progressFull = document.getElementById('progress-full');
-  var loadingPct   = document.getElementById('loading-pct');
-  var loadingWrap  = document.getElementById('loading-wrap');
+var progressFull = document.getElementById('progress-full');
+var loadingPct   = document.getElementById('loading-pct');
+var loadingWrap  = document.getElementById('loading-wrap');
 
-  window.unityInstance = UnityLoader.instantiate('unity-canvas', 'Build/SanFrancisco/SanFrancisco.json', {
-    onProgress: function(instance, progress) {
-      var pct = Math.round(progress * 100);
-      progressFull.style.width = pct + '%';
-      loadingPct.textContent = 'Loading... ' + pct + '%';
-      if (pct >= 100) setTimeout(function(){ loadingWrap.style.display = 'none'; }, 400);
-    }
-  });
+window.unityInstance = UnityLoader.instantiate('unity-canvas', 'Build/SanFrancisco/SanFrancisco.json', {
+  onProgress: function(instance, progress) {
+    var pct = Math.round(progress * 100);
+    progressFull.style.width = pct + '%';
+    loadingPct.textContent = 'Loading... ' + pct + '%';
+    if (pct >= 100) setTimeout(function(){ loadingWrap.style.display = 'none'; }, 400);
+  }
+});
 </script>
 
 </body>
