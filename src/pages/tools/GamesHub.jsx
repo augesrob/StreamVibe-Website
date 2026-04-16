@@ -11,9 +11,9 @@ import { userHasAccess } from '@/components/games/GamePlanGate';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 
 const COLOR_MAP = {
-  cyan:   { border: 'border-cyan-500/20',   hover: 'hover:border-cyan-500',   icon: 'from-cyan-500/20 to-blue-600/20',  text: 'text-cyan-400'   },
-  purple: { border: 'border-purple-500/20', hover: 'hover:border-purple-500', icon: 'from-purple-500/20 to-pink-600/20',text: 'text-purple-400' },
-  green:  { border: 'border-green-500/20',  hover: 'hover:border-green-500',  icon: 'from-green-500/20 to-teal-600/20', text: 'text-green-400'  },
+  cyan:   { border: 'border-cyan-500/20',   hover: 'hover:border-cyan-500',   icon: 'from-cyan-500/20 to-blue-600/20',    text: 'text-cyan-400'   },
+  purple: { border: 'border-purple-500/20', hover: 'hover:border-purple-500', icon: 'from-purple-500/20 to-pink-500/20',  text: 'text-purple-400' },
+  green:  { border: 'border-green-500/20',  hover: 'hover:border-green-500',  icon: 'from-green-500/20 to-teal-600/20',  text: 'text-green-400'  },
 };
 
 function GameCard({ game }) {

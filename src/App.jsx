@@ -38,6 +38,7 @@ import LiveWordsOverlay    from '@/pages/tools/LiveWordsOverlay';
 import CannonBlastOverlay  from '@/pages/tools/CannonBlastOverlay';
 import PlantsVsZombiesTool    from '@/pages/tools/PlantsVsZombiesTool';
 import PlantsVsZombiesOverlay from '@/pages/tools/PlantsVsZombiesOverlay';
+import SubwayRunnerTool       from '@/pages/tools/SubwayRunnerTool';
 
 const OVERLAY_PATHS = ['/overlay', '/games-overlay/'];
 function isOverlayPath(path) {
@@ -94,6 +95,7 @@ function AppInner() {
           <Route path="/tools/games/live-words"     element={<ProtectedRoute><LiveWordsTool /></ProtectedRoute>} />
           <Route path="/tools/games/cannon-blast"   element={<ProtectedRoute><CannonBlastTool /></ProtectedRoute>} />
           <Route path="/tools/games/plants-vs-zombies" element={<ProtectedRoute><PlantsVsZombiesTool /></ProtectedRoute>} />
+          <Route path="/tools/games/subway-runner"     element={<ProtectedRoute><SubwayRunnerTool /></ProtectedRoute>} />
         </Routes>
       </main>
       <Footer />

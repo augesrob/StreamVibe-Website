@@ -1,0 +1,19 @@
+{
+    "companyName": "Kiloo Games",
+    "productName": "Subway Surfers",
+    "productVersion": "1.94.0",
+    "dataUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.data.unityweb",
+    "wasmCodeUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.wasm.code.unityweb",
+    "wasmFrameworkUrl": "SanFrancisco.wasm.framework.unityweb",
+    "asmCodeUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.code.unityweb",
+    "asmMemoryUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.memory.unityweb",
+    "asmFrameworkUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.framework.unityweb",
+    "TOTAL_MEMORY": 369098752,
+    "graphicsAPI": ["WebGL 2.0","WebGL 1.0"],
+    "webglContextAttributes": {"preserveDrawingBuffer": false},
+    "splashScreenStyle": "Dark",
+    "backgroundColor": "#231F20",
+    "developmentBuild": false,
+    "multithreading": false,
+    "unityVersion": "2019.4.18f1"
+}
