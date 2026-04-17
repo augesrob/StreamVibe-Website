@@ -112,54 +112,57 @@
     } catch(e) {}
   };
 
-  // Auto-dismiss age gate: scroll BOTH columns to valid adult date, then tap OK
+  // Auto-dismiss age gate: scroll to valid adult date (Jan 1990), then tap OK
+  // Runs ONCE 2s after load. Uses absolute canvas coords derived from getBoundingClientRect.
+  var ageGateDone = false;
   function autoTapOK() {
+    if (ageGateDone) return;
     var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
     if (!canvas) return;
     var r = canvas.getBoundingClientRect();
-    var cw = r.width, ch = r.height;
+    // Arrow positions as fraction of canvas
+    // From screenshot: popup is centered, month col ~33%, year col ~51%
+    // Up arrows at ~32% height, down arrows at ~76% height, OK at ~88% height
+    var monthUpX  = r.left + r.width * 0.325;
+    var yearDownX = r.left + r.width * 0.510;  // DOWN = goes forward in time (newer)
+    var yearUpX   = r.left + r.width * 0.510;  // UP = goes back in time (older)
+    var upY       = r.top  + r.height * 0.325;
+    var downY     = r.top  + r.height * 0.755;
+    var okX       = r.left + r.width  * 0.510;
+    var okY       = r.top  + r.height * 0.895;
 
-    function touch(x, y) {
-      return new Touch({ identifier: Date.now() + Math.random()*100|0, target: canvas,
-        clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y,
-        radiusX: 5, radiusY: 5, rotationAngle: 0, force: 1 });
-    }
     function tap(x, y, cb) {
-      var t = touch(x, y);
-      canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles:true, cancelable:true, touches:[t], targetTouches:[t], changedTouches:[t] }));
-      setTimeout(function() {
-        canvas.dispatchEvent(new TouchEvent('touchend', { bubbles:true, cancelable:true, touches:[], targetTouches:[], changedTouches:[t] }));
-        if (cb) setTimeout(cb, 80);
+      var t = new Touch({ identifier: Date.now() + (Math.random()*100|0), target: canvas,
+        clientX:x, clientY:y, pageX:x, pageY:y, screenX:x, screenY:y,
+        radiusX:5, radiusY:5, rotationAngle:0, force:1 });
+      canvas.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t],targetTouches:[t],changedTouches:[t]}));
+      setTimeout(function(){
+        canvas.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t]}));
+        if (cb) setTimeout(cb, 100);
       }, 80);
     }
 
-    // Tap the UP arrow on a column (goes to earlier items = older years/months)
-    // Month up arrow ~33% x, Year up arrow ~50% x, both at ~32% y
-    var monthUpX = r.left + cw * 0.33;
-    var yearUpX  = r.left + cw * 0.50;
-    var arrowY   = r.top  + ch * 0.32;
-    var okX      = r.left + cw * 0.50;
-    var okY      = r.top  + ch * 0.88;
-
-    // Tap month up arrow 5 times, year up arrow 15 times, then OK
+    // Year is at 1900 (went too far back). Need to tap year DOWN 90 times to reach 1990.
+    // Month: tap month up arrow 6 times to get to June (or any valid month).
+    // Then tap OK.
     var steps = [];
-    for (var i = 0; i < 5;  i++) steps.push([monthUpX, arrowY]);
-    for (var j = 0; j < 15; j++) steps.push([yearUpX,  arrowY]);
+    // Tap year DOWN 90x to go from 1900 → 1990
+    for (var i = 0; i < 90; i++) steps.push([yearDownX, downY]);
+    // Tap month UP 6x to change from Dec to June
+    for (var j = 0; j < 6;  j++) steps.push([monthUpX, upY]);
+    // Tap OK twice
     steps.push([okX, okY]);
-    steps.push([okX, okY]); // double-tap OK
+    steps.push([okX, okY]);
 
     var idx = 0;
     var iv = setInterval(function() {
-      if (idx >= steps.length) { clearInterval(iv); return; }
+      if (idx >= steps.length) { clearInterval(iv); ageGateDone = true; return; }
       tap(steps[idx][0], steps[idx][1]);
       idx++;
-    }, 180);
+    }, 80); // 80ms per tap = ~7s total for 90+6+2 taps
   }
 
-  // Run every 3s until age gate is dismissed (max 45s)
-  setTimeout(autoTapOK, 2000);
-  var ageGateTimer = setInterval(autoTapOK, 3000);
-  setTimeout(function() { clearInterval(ageGateTimer); }, 45000);
+  setTimeout(autoTapOK, 2500);
 
   window.showUnitywebNoSupport = function() {};
 })();
