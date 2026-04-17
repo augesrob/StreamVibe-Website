@@ -70,9 +70,14 @@ export default function SubwayRunnerTool() {
     localStorage.setItem('sv_runner_gifts', JSON.stringify(newGifts));
   };
 
-  // Send event into the game iframe
+  // Send event into the game iframe — try postMessage then direct frame call
   const fireEvent = useCallback((event) => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'sv_gift', event }, '*');
+    const frame = iframeRef.current;
+    if (!frame) return;
+    // Primary: postMessage (works cross-origin)
+    try { frame.contentWindow?.postMessage({ type: 'sv_gift', event }, '*'); } catch(e) {}
+    // Fallback: direct call if same-origin
+    try { frame.contentWindow?.svGift?.(event); } catch(e) {}
   }, []);
 
   // Handle incoming TikTok gift

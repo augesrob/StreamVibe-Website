@@ -8,80 +8,115 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { width:100%; height:100%; overflow:hidden; background:#231F20; }
+
+  /* Gift flash — must be above Unity canvas which is z-index ~1 */
   #sv-flash {
-    position:fixed; top:60px; left:50%; transform:translateX(-50%);
-    z-index:9999; pointer-events:none;
-    font-size:22px; font-weight:bold; font-family:monospace; letter-spacing:2px;
-    white-space:nowrap; opacity:0;
+    position:fixed; top:50px; left:50%; transform:translateX(-50%);
+    z-index:99999; pointer-events:none;
+    font-size:26px; font-weight:bold; font-family:Arial,sans-serif;
+    letter-spacing:2px; white-space:nowrap; opacity:0;
+    background:rgba(0,0,0,0.75); padding:10px 22px; border-radius:30px;
+    border:2px solid currentColor;
   }
   #sv-flash.show { animation:svFade 2.4s forwards; }
   @keyframes svFade {
-    0%   { opacity:0; transform:translateX(-50%) translateY(8px); }
-    12%  { opacity:1; transform:translateX(-50%) translateY(0); }
+    0%   { opacity:0; transform:translateX(-50%) translateY(10px) scale(0.9); }
+    12%  { opacity:1; transform:translateX(-50%) translateY(0)    scale(1);   }
     75%  { opacity:1; }
-    100% { opacity:0; transform:translateX(-50%) translateY(-18px); }
+    100% { opacity:0; transform:translateX(-50%) translateY(-20px) scale(0.95); }
   }
 </style>
 </head>
 <body>
+
 <div id="sv-flash"></div>
+
 <script>
-// ── 1. Patch PokiSDK so gameInteractive always resolves immediately ──────
-// We use a Proxy on window so every time anything sets window.PokiSDK
-// (poki-sdk.js sets it, then poki-sdk-core sets it again) we immediately
-// wrap gameInteractive / commercialBreak / rewardedBreak to auto-resolve.
 (function() {
   var noop = function() {};
   var resolved = function() { return Promise.resolve(); };
 
-  function patch(sdk) {
+  // ── Proxy window.PokiSDK so every assignment gets our auto-resolve stubs ──
+  var _poki = {};
+  function patchSdk(sdk) {
     if (!sdk) return;
-    // These must auto-resolve or the game stays gray
-    sdk.gameInteractive   = resolved;
-    sdk.commercialBreak   = resolved;
-    sdk.rewardedBreak     = resolved;
-    sdk.init              = resolved;
-    // These just need to exist
-    ['gameLoadingStart','gameLoadingFinished','gameplayStart','gameplayStop',
-     'roundStart','roundEnd','happyTime','customEvent','disableProgrammatic',
-     'muteAd','destroyAd','setDebug','logError','sendHighscore',
-     'gameLoadingProgress','setPlayerAge','shareableURL'].forEach(function(m) {
-      if (typeof sdk[m] !== 'function') sdk[m] = noop;
-    });
+    sdk.init                = resolved;
+    sdk.gameInteractive     = resolved;  // ← must resolve or game stays gray
+    sdk.commercialBreak     = resolved;
+    sdk.rewardedBreak       = resolved;
+    sdk.gameLoadingFinished = noop;
+    sdk.gameLoadingStart    = noop;
+    sdk.gameplayStart       = noop;
+    sdk.gameplayStop        = noop;
+    sdk.roundStart          = noop;
+    sdk.roundEnd            = noop;
+    sdk.happyTime           = noop;
+    sdk.customEvent         = noop;
+    sdk.disableProgrammatic = noop;
+    sdk.muteAd              = noop;
+    sdk.destroyAd           = noop;
+    sdk.setDebug            = noop;
+    sdk.logError            = noop;
+    sdk.sendHighscore       = noop;
+    sdk.gameLoadingProgress = noop;
+    sdk.toggleNonPersonalized = noop;
+    sdk.setConsentString    = noop;
+    sdk.setPlayerAge        = function(age) {
+      // Auto-confirm adult age so the in-game age gate is skipped
+      if (window._pokiBridge && window._pokiBridge.setPlayerAge) {
+        try { window._pokiBridge.setPlayerAge(25); } catch(e){}
+      }
+    };
+    sdk.shareableURL        = function(url) { return url || window.location.href; };
+    sdk.getLeaderboard      = function() { return Promise.resolve({}); };
   }
 
-  // Intercept every assignment to window.PokiSDK
-  var _poki = {};
   Object.defineProperty(window, 'PokiSDK', {
     get: function() { return _poki; },
-    set: function(val) {
-      _poki = val || {};
-      patch(_poki);
-    },
+    set: function(val) { _poki = val || {}; patchSdk(_poki); },
     configurable: true
   });
 
-  // Also intercept initPokiBridge called by Unity WASM
+  // ── initPokiBridge called synchronously by Unity WASM on startup ──────────
   window.initPokiBridge = function(bridge) {
     try {
-      if (bridge) {
-        ['gameLoadingStart','gameLoadingFinished','gameInteractive',
-         'gameplayStart','gameplayStop','roundStart','roundEnd',
-         'rewardedBreak','commercialBreak','happyTime','customEvent',
-         'shareableURL','setDebug','logError','sendHighscore',
-         'gameLoadingProgress','setPlayerAge','disableProgrammatic',
-         'muteAd','destroyAd','getLeaderboard'].forEach(function(m) {
-          bridge[m] = /Break|Interactive|init/.test(m) ? resolved : noop;
-        });
-      }
+      if (!bridge) return;
       window._pokiBridge = bridge;
+
+      var autoResolve = ['gameInteractive','commercialBreak','rewardedBreak'];
+      var noops = ['gameLoadingStart','gameLoadingFinished','gameplayStart',
+                   'gameplayStop','roundStart','roundEnd','happyTime',
+                   'customEvent','shareableURL','setDebug','logError',
+                   'sendHighscore','gameLoadingProgress','setPlayerAge',
+                   'disableProgrammatic','muteAd','destroyAd','getLeaderboard'];
+
+      autoResolve.forEach(function(m) { bridge[m] = resolved; });
+      noops.forEach(function(m) { if (!bridge[m]) bridge[m] = noop; });
+
+      // ── AUTO-BYPASS AGE GATE ─────────────────────────────────────────────
+      // Unity calls bridge.setPlayerAge() when it wants the age gate.
+      // We intercept it and immediately call back with age=25 so the game
+      // skips the gate entirely.
+      bridge.setPlayerAge = function(callback) {
+        try {
+          // callback may be a function Unity passes for us to call with the age
+          if (typeof callback === 'function') {
+            setTimeout(function() { callback(25); }, 0);
+          }
+          // Also call the SDK method directly
+          if (window.PokiSDK && window.PokiSDK.setPlayerAge) {
+            window.PokiSDK.setPlayerAge(25);
+          }
+        } catch(e) {}
+      };
+
     } catch(e) {}
   };
 
   window.showUnitywebNoSupport = function() {};
 })();
 
-// ── 2. window.config ────────────────────────────────────────────────────
+// ── window.config ──────────────────────────────────────────────────────────
 window.config = {
   loader:             'unity',
   debug:              false,
@@ -102,41 +137,50 @@ window.config = {
 };
 </script>
 
-<!-- 3. Original script order from CodeSandbox -->
 <script type="text/javascript" src="4399.z.js"></script>
 <script src="master-loader.js"></script>
 
-<!-- 4. StreamVibe TikTok gift bridge -->
+<!-- StreamVibe TikTok gift bridge -->
 <script>
 (function() {
   var EVT = {
-    spawn_coins: { label:'Coins! 🪙',      color:'#ffd700' },
-    jetpack:     { label:'JETPACK! 🚀',    color:'#ff9f43' },
-    magnet:      { label:'Magnet! 🧲',     color:'#74b9ff' },
-    sneakers:    { label:'Sneakers! 👟',   color:'#55efc4' },
-    hoverboard:  { label:'Hoverboard! 🛹', color:'#fd79a8' },
-    x2_score:    { label:'×2 Score! ✕2',  color:'#a29bfe' },
-    add_life:    { label:'+1 Life! ♥',    color:'#fd79a8' },
-    clear_track: { label:'Track Cleared!', color:'#fdcb6e' },
+    spawn_coins: { label:'🪙  COINS INCOMING!',  color:'#ffd700' },
+    jetpack:     { label:'🚀  JETPACK!',          color:'#ff9f43' },
+    magnet:      { label:'🧲  COIN MAGNET!',      color:'#74b9ff' },
+    sneakers:    { label:'👟  SUPER SNEAKERS!',   color:'#55efc4' },
+    hoverboard:  { label:'🛹  HOVERBOARD!',       color:'#fd79a8' },
+    x2_score:    { label:'✕2  DOUBLE SCORE!',     color:'#a29bfe' },
+    add_life:    { label:'♥  +1 LIFE!',           color:'#fd79a8' },
+    clear_track: { label:'💥  TRACK CLEARED!',    color:'#fdcb6e' },
   };
+
   var flashTimer = null;
   function flash(label, color) {
     var el = document.getElementById('sv-flash');
     if (!el) return;
-    el.textContent = label; el.style.color = color;
-    el.style.textShadow = '0 0 22px ' + color;
-    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+    el.textContent = label;
+    el.style.color = color;
+    el.style.borderColor = color;
+    el.style.boxShadow = '0 0 30px ' + color + '88';
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
     if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(function(){ el.classList.remove('show'); }, 2400);
+    flashTimer = setTimeout(function() { el.classList.remove('show'); }, 2400);
   }
+
+  // Listen for postMessage from the React dashboard
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.type !== 'sv_gift') return;
     var meta = EVT[e.data.event];
     if (meta) flash(meta.label, meta.color);
-    if (window.unityInstance) {
-      try { window.unityInstance.SendMessage('GameManager','OnTikTokGift', e.data.event); } catch(_) {}
-    }
   });
+
+  // Also expose directly so any parent page can call window.frames[0].svGift('jetpack')
+  window.svGift = function(event) {
+    var meta = EVT[event];
+    if (meta) flash(meta.label, meta.color);
+  };
 })();
 </script>
 
