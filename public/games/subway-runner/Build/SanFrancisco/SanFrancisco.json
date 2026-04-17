@@ -4,7 +4,7 @@
     "productVersion": "1.94.0",
     "dataUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.data.unityweb",
     "wasmCodeUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.wasm.code.unityweb",
-    "wasmFrameworkUrl": "SanFrancisco.wasm.framework.unityweb",
+    "wasmFrameworkUrl": "SanFrancisco.wasm.framework.sv1.unityweb",
     "asmCodeUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.code.unityweb",
     "asmMemoryUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.memory.unityweb",
     "asmFrameworkUrl": "https://rawcdn.githack.com/Sc000p/subway-surfers-unity/525eb141f50292d6a83ae60acd6b5849ec651155/Build/SanFrancisco/SanFrancisco.asm.framework.unityweb",
