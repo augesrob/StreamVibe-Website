@@ -185,65 +185,97 @@ window.config = {
     triggerGameEvent(event);
   };
 
-  // ── Trigger actual game input via touch simulation ──────────────────────
-  // Subway Surfers is a touch game. We simulate swipes on the canvas.
-  // Unity processes these as real player input.
-  function getCanvas() {
-    return document.querySelector('#game canvas') || document.querySelector('canvas');
+  // ── Map gift events to real Unity SendMessage calls ──────────────────────
+  // Discovered by decompiling SanFrancisco.data.unityweb:
+  //   PickupType enum: Jetpack, CoinMagnet, SuperSneakers, Hoverboard, Multiplier, ScoreBooster
+  //   Key methods: ForceSpawnPickupType, SetForceSpawnPickupTypeAndOriginalTo
+  //   FakeTouch system: UseFakeInput, ProcessFakeTouches, FakeTouches
+  //   GameObject: PickupManager, ingameTouchDetection
+
+  function sendMsg(obj, method, param) {
+    try {
+      var mod = window.Module || (window.unityInstance && window.unityInstance.Module);
+      if (mod && mod.SendMessage) {
+        if (param !== undefined) mod.SendMessage(obj, method, param);
+        else mod.SendMessage(obj, method);
+        return true;
+      }
+    } catch(e) {}
+    return false;
   }
 
-  function swipe(dx, dy) {
-    var canvas = getCanvas();
+  // Force-spawn a powerup by telling PickupManager to spawn it next
+  function spawnPickup(type) {
+    // Try multiple known object names - Unity scene object name may vary
+    var objects = ['PickupManager', 'PickupManagerController', 'GameManager', 'InGame'];
+    for (var i = 0; i < objects.length; i++) {
+      if (sendMsg(objects[i], 'ForceSpawnPickupType', type)) break;
+      sendMsg(objects[i], 'SetForceSpawnPickupTypeAndOriginalTo', type);
+    }
+  }
+
+  // Fake swipe using ingameTouchDetection
+  function fakeSwipe(dx, dy) {
+    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
     if (!canvas) return;
     var rect = canvas.getBoundingClientRect();
     var cx = rect.left + rect.width / 2;
-    var cy = rect.top + rect.height / 2;
-
-    function makeTouch(x, y, id) {
-      return new Touch({ identifier: id || 1, target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 10, radiusY: 10, rotationAngle: 0, force: 1 });
+    var cy = rect.top + rect.height * 0.6;
+    function makeTouch(x, y) {
+      return new Touch({ identifier: Date.now(), target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 10, radiusY: 10, rotationAngle: 0, force: 1 });
     }
-
-    var t1 = makeTouch(cx, cy, 1);
-    var t2 = makeTouch(cx + dx, cy + dy, 1);
-
+    var t1 = makeTouch(cx, cy);
+    var t2 = makeTouch(cx + dx, cy + dy);
     canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t1], targetTouches: [t1], changedTouches: [t1] }));
     setTimeout(function() {
       canvas.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t2] }));
     }, 80);
   }
 
-  // Map gift events to swipe directions / repeated actions
-  var gameActions = {
-    // Swipe up = jump (jetpack — rapid repeated jumps to simulate flying)
-    jetpack: function() {
-      var count = 0;
-      var iv = setInterval(function() {
-        swipe(0, -150);
-        if (++count >= 8) clearInterval(iv);
-      }, 300);
-    },
-    // Swipe down = roll
-    hoverboard: function() { swipe(0, 150); },
-    // Swipe left/right rapid = lane dodge
-    clear_track: function() {
-      swipe(-120, 0);
-      setTimeout(function() { swipe(120, 0); }, 200);
-      setTimeout(function() { swipe(-120, 0); }, 400);
-    },
-    // Swipe up for sneakers (high jump)
-    sneakers: function() { swipe(0, -200); },
-    // Spawn coins / magnet / x2 / add_life — these are game-internal,
-    // can't trigger via input. Show flash only.
-    spawn_coins: function() {},
-    magnet:      function() {},
-    x2_score:    function() {},
-    add_life:    function() {},
-  };
-
   function triggerGameEvent(event) {
-    var action = gameActions[event];
-    if (action) {
-      try { action(); } catch(e) {}
+    switch(event) {
+      case 'jetpack':
+        // Spawn the Jetpack pickup on the track
+        spawnPickup('Jetpack');
+        spawnPickup('3'); // numeric fallback (Jetpack=2 or 3 in enum)
+        break;
+      case 'magnet':
+        spawnPickup('CoinMagnet');
+        spawnPickup('1');
+        break;
+      case 'sneakers':
+        spawnPickup('SuperSneakers');
+        spawnPickup('4');
+        break;
+      case 'hoverboard':
+        spawnPickup('Hoverboard');
+        spawnPickup('0');
+        // Also try activating directly
+        sendMsg('PickupManager', 'ActivatePickup', 'Hoverboard');
+        break;
+      case 'x2_score':
+        spawnPickup('Multiplier');
+        spawnPickup('2');
+        break;
+      case 'spawn_coins':
+        // SpawnCoinRow on PickupManager
+        sendMsg('PickupManager', 'SpawnCoinRows', '3');
+        sendMsg('PickupManager', 'SpawnCoins', '20');
+        sendMsg('InGame', 'SpawnCoins', '20');
+        break;
+      case 'add_life':
+        // No direct life add - do a hoverboard as shield equivalent
+        spawnPickup('Hoverboard');
+        break;
+      case 'clear_track':
+        // Rapid lane dodges via fakeSwipe
+        fakeSwipe(-150, 0);
+        setTimeout(function() { fakeSwipe(150, 0); }, 200);
+        setTimeout(function() { fakeSwipe(-150, 0); }, 400);
+        // Also try clearing obstacles via SendMessage
+        sendMsg('InGame', 'ClearObstacles', '');
+        sendMsg('GameManager', 'ClearObstacles', '');
+        break;
     }
   }
 })();
