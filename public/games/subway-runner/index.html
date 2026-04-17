@@ -8,8 +8,6 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { width:100%; height:100%; overflow:hidden; background:#231F20; }
-
-  /* Gift flash — must be above Unity canvas which is z-index ~1 */
   #sv-flash {
     position:fixed; top:50px; left:50%; transform:translateX(-50%);
     z-index:99999; pointer-events:none;
@@ -21,117 +19,114 @@
   #sv-flash.show { animation:svFade 2.4s forwards; }
   @keyframes svFade {
     0%   { opacity:0; transform:translateX(-50%) translateY(10px) scale(0.9); }
-    12%  { opacity:1; transform:translateX(-50%) translateY(0)    scale(1);   }
+    12%  { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
     75%  { opacity:1; }
     100% { opacity:0; transform:translateX(-50%) translateY(-20px) scale(0.95); }
   }
 </style>
 </head>
 <body>
-
 <div id="sv-flash"></div>
 
 <script>
+// ── Simple no-Proxy PokiSDK stub ─────────────────────────────────────────
+// No Object.defineProperty, no Proxy — those can crash inside WASM context.
+// Just set a plain object. poki-sdk-core will overwrite it later, so we
+// also patch AFTER it loads via a MutationObserver watching for its script.
 (function() {
   var noop = function() {};
   var resolved = function() { return Promise.resolve(); };
 
-  // ── Proxy window.PokiSDK so every assignment gets our auto-resolve stubs ──
-  var _poki = {};
-  function patchSdk(sdk) {
-    if (!sdk) return;
-    sdk.init                = resolved;
-    sdk.gameInteractive     = resolved;  // ← must resolve or game stays gray
-    sdk.commercialBreak     = resolved;
-    sdk.rewardedBreak       = resolved;
-    sdk.gameLoadingFinished = noop;
-    sdk.gameLoadingStart    = noop;
-    sdk.gameplayStart       = noop;
-    sdk.gameplayStop        = noop;
-    sdk.roundStart          = noop;
-    sdk.roundEnd            = noop;
-    sdk.happyTime           = noop;
-    sdk.customEvent         = noop;
-    sdk.disableProgrammatic = noop;
-    sdk.muteAd              = noop;
-    sdk.destroyAd           = noop;
-    sdk.setDebug            = noop;
-    sdk.logError            = noop;
-    sdk.sendHighscore       = noop;
-    sdk.gameLoadingProgress = noop;
-    sdk.toggleNonPersonalized = noop;
-    sdk.setConsentString    = noop;
-    sdk.setPlayerAge        = function(age) {
-      // Auto-confirm adult age so the in-game age gate is skipped
-      if (window._pokiBridge && window._pokiBridge.setPlayerAge) {
-        try { window._pokiBridge.setPlayerAge(25); } catch(e){}
-      }
+  function makeSdk() {
+    return {
+      init: resolved,
+      gameInteractive: resolved,
+      commercialBreak: resolved,
+      rewardedBreak: resolved,
+      gameLoadingStart: noop,
+      gameLoadingFinished: noop,
+      gameplayStart: noop,
+      gameplayStop: noop,
+      roundStart: noop,
+      roundEnd: noop,
+      happyTime: noop,
+      customEvent: noop,
+      disableProgrammatic: noop,
+      muteAd: noop,
+      destroyAd: noop,
+      setDebug: noop,
+      logError: noop,
+      sendHighscore: noop,
+      gameLoadingProgress: noop,
+      toggleNonPersonalized: noop,
+      setConsentString: noop,
+      setPlayerAge: noop,
+      shareableURL: function(u) { return u || location.href; },
+      getLeaderboard: function() { return Promise.resolve({}); }
     };
-    sdk.shareableURL        = function(url) { return url || window.location.href; };
-    sdk.getLeaderboard      = function() { return Promise.resolve({}); };
   }
 
-  Object.defineProperty(window, 'PokiSDK', {
-    get: function() { return _poki; },
-    set: function(val) { _poki = val || {}; patchSdk(_poki); },
-    configurable: true
-  });
+  window.PokiSDK = makeSdk();
 
-  // ── initPokiBridge called synchronously by Unity WASM on startup ──────────
+  // When poki-sdk-core loads and overwrites window.PokiSDK, re-patch the
+  // three critical promise methods so the game doesn't hang gray.
+  // We watch for the script to finish loading.
+  var _origCreate = document.createElement.bind(document);
+  document.createElement = function(tag) {
+    var el = _origCreate(tag);
+    if (tag.toLowerCase() === 'script') {
+      el.addEventListener('load', function() {
+        if (el.src && el.src.indexOf('poki-sdk-core') > -1) {
+          // Re-patch after core SDK overwrites PokiSDK
+          setTimeout(function() {
+            if (window.PokiSDK) {
+              window.PokiSDK.gameInteractive = resolved;
+              window.PokiSDK.commercialBreak = resolved;
+              window.PokiSDK.rewardedBreak = resolved;
+              window.PokiSDK.init = resolved;
+            }
+          }, 0);
+        }
+      });
+    }
+    return el;
+  };
+
+  // initPokiBridge — called by Unity WASM synchronously on startup
   window.initPokiBridge = function(bridge) {
     try {
       if (!bridge) return;
       window._pokiBridge = bridge;
-
-      var autoResolve = ['gameInteractive','commercialBreak','rewardedBreak'];
-      var noops = ['gameLoadingStart','gameLoadingFinished','gameplayStart',
-                   'gameplayStop','roundStart','roundEnd','happyTime',
-                   'customEvent','shareableURL','setDebug','logError',
-                   'sendHighscore','gameLoadingProgress','setPlayerAge',
-                   'disableProgrammatic','muteAd','destroyAd','getLeaderboard'];
-
-      autoResolve.forEach(function(m) { bridge[m] = resolved; });
-      noops.forEach(function(m) { if (!bridge[m]) bridge[m] = noop; });
-
-      // ── AUTO-BYPASS AGE GATE ─────────────────────────────────────────────
-      // Unity calls bridge.setPlayerAge() when it wants the age gate.
-      // We intercept it and immediately call back with age=25 so the game
-      // skips the gate entirely.
-      bridge.setPlayerAge = function(callback) {
-        try {
-          // callback may be a function Unity passes for us to call with the age
-          if (typeof callback === 'function') {
-            setTimeout(function() { callback(25); }, 0);
-          }
-          // Also call the SDK method directly
-          if (window.PokiSDK && window.PokiSDK.setPlayerAge) {
-            window.PokiSDK.setPlayerAge(25);
-          }
-        } catch(e) {}
+      // Auto-bypass age gate: wrap setPlayerAge to call back with age 25
+      var origAge = bridge.setPlayerAge;
+      bridge.setPlayerAge = function(cb) {
+        try { if (typeof cb === 'function') setTimeout(function(){ cb(25); }, 0); } catch(e){}
+        try { if (origAge) origAge.call(bridge, cb); } catch(e){}
       };
-
-    } catch(e) {}
+      // Make interactive/breaks resolve immediately
+      bridge.gameInteractive = resolved;
+      bridge.commercialBreak = resolved;
+      bridge.rewardedBreak = resolved;
+    } catch(e) { console.log('[SV] initPokiBridge error:', e); }
   };
 
   window.showUnitywebNoSupport = function() {};
 })();
 
-// ── window.config ──────────────────────────────────────────────────────────
 window.config = {
-  loader:             'unity',
-  debug:              false,
-  maxRatio:           16 / 9,
-  minRatio:           9 / 16,
-  title:              'Subway Surfers: San Francisco',
-  unityVersion:       '2019.4.18f1',
+  loader: 'unity',
+  debug: false,
+  maxRatio: 16/9, minRatio: 9/16,
+  title: 'Subway Surfers: San Francisco',
+  unityVersion: '2019.4.18f1',
   unityWebglBuildUrl: 'Build/SanFrancisco/SanFrancisco.json',
-  fileSize:           35,
+  fileSize: 35,
   cachedDecompressedFileSizes: {
-    'SanFrancisco.asm.code.unityweb':       9077143,
-    'SanFrancisco.asm.framework.unityweb':  86369,
-    'SanFrancisco.asm.memory.unityweb':     951447,
-    'SanFrancisco.data.unityweb':           18323917,
-    'SanFrancisco.wasm.code.unityweb':      7279617,
+    'SanFrancisco.asm.code.unityweb': 9077143,
+    'SanFrancisco.asm.framework.unityweb': 86369,
+    'SanFrancisco.asm.memory.unityweb': 951447,
+    'SanFrancisco.data.unityweb': 18323917,
+    'SanFrancisco.wasm.code.unityweb': 7279617,
     'SanFrancisco.wasm.framework.unityweb': 90693,
   },
 };
@@ -140,68 +135,37 @@ window.config = {
 <script type="text/javascript" src="4399.z.js"></script>
 <script src="master-loader.js"></script>
 
-<!-- DEBUG: probe Unity internals after load and report back via postMessage -->
+<!-- Debug probe: runs inside iframe, reports via postMessage -->
 <script>
 (function() {
-  function probe() {
-    var mod = window.Module;
-    var result = {
-      type: 'sv_debug',
-      hasModule: !!mod,
-      hasSendMessage: !!(mod && mod.SendMessage),
-      moduleType: typeof mod,
-    };
-
-    if (mod && mod.SendMessage) {
-      // Try each known GameObject name — Unity logs "SendMessage: object not found" to console
-      // We wrap in try/catch to capture the error message
-      var testObjects = ['PickupManager','PickupManagerController','InGame','Game','ingameTouchDetection','GameManager'];
-      var errors = {};
-      testObjects.forEach(function(obj) {
-        try {
-          mod.SendMessage(obj, 'TestPing', '1');
-          errors[obj] = 'no error';
-        } catch(e) {
-          errors[obj] = e.message || String(e);
-        }
-      });
-      result.sendMessageTests = errors;
-
-      // Also try ForceSpawnPickupType on each
-      var spawnErrors = {};
-      testObjects.forEach(function(obj) {
-        try {
-          mod.SendMessage(obj, 'ForceSpawnPickupType', 'Jetpack');
-          spawnErrors[obj] = 'OK';
-        } catch(e) {
-          spawnErrors[obj] = e.message || String(e);
-        }
-      });
-      result.spawnTests = spawnErrors;
-    }
-
-    window.parent.postMessage(result, '*');
-    console.log('[SV DEBUG]', JSON.stringify(result));
-  }
-
-  // Wait for Unity to be ready, then probe
   var attempts = 0;
   var iv = setInterval(function() {
     attempts++;
-    if ((window.Module && window.Module.SendMessage) || attempts > 60) {
+    var mod = window.Module;
+    if (mod && mod.SendMessage) {
       clearInterval(iv);
-      if (window.Module && window.Module.SendMessage) probe();
-      else window.parent.postMessage({ type: 'sv_debug', error: 'Module never loaded after ' + attempts + 's' }, '*');
+      // Test each known GameObject name
+      var results = {};
+      ['PickupManager','PickupManagerController','InGame','Game','GameManager','ingameTouchDetection'].forEach(function(obj) {
+        try { mod.SendMessage(obj, 'TestPing', '1'); results[obj] = 'no_error'; }
+        catch(e) { results[obj] = String(e.message||e).substring(0,80); }
+      });
+      window.parent.postMessage({ type:'sv_debug', module:'found', attempts:attempts, tests:results }, '*');
+      console.log('[SV DEBUG FOUND]', JSON.stringify(results));
+    } else if (attempts >= 120) {
+      clearInterval(iv);
+      window.parent.postMessage({ type:'sv_debug', module:'not_found', attempts:attempts }, '*');
+      console.log('[SV DEBUG] Module never ready after 120s');
     }
   }, 1000);
 })();
 </script>
 
-<!-- StreamVibe TikTok gift bridge -->
+<!-- StreamVibe gift bridge -->
 <script>
 (function() {
   var EVT = {
-    spawn_coins: { label:'🪙  COINS INCOMING!',  color:'#ffd700' },
+    spawn_coins: { label:'🪙  COINS!',           color:'#ffd700' },
     jetpack:     { label:'🚀  JETPACK!',          color:'#ff9f43' },
     magnet:      { label:'🧲  COIN MAGNET!',      color:'#74b9ff' },
     sneakers:    { label:'👟  SUPER SNEAKERS!',   color:'#55efc4' },
@@ -210,131 +174,77 @@ window.config = {
     add_life:    { label:'♥  +1 LIFE!',           color:'#fd79a8' },
     clear_track: { label:'💥  TRACK CLEARED!',    color:'#fdcb6e' },
   };
-
   var flashTimer = null;
+
   function flash(label, color) {
     var el = document.getElementById('sv-flash');
     if (!el) return;
-    el.textContent = label;
-    el.style.color = color;
-    el.style.borderColor = color;
-    el.style.boxShadow = '0 0 30px ' + color + '88';
-    el.classList.remove('show');
-    void el.offsetWidth;
-    el.classList.add('show');
+    el.textContent = label; el.style.color = color;
+    el.style.borderColor = color; el.style.boxShadow = '0 0 30px ' + color + '88';
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
     if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(function() { el.classList.remove('show'); }, 2400);
+    flashTimer = setTimeout(function(){ el.classList.remove('show'); }, 2400);
   }
 
-  // Listen for postMessage from the React dashboard
+  function sendMsg(obj, method, param) {
+    try {
+      var mod = window.Module;
+      if (!mod || !mod.SendMessage) return false;
+      if (param !== undefined) mod.SendMessage(obj, method, String(param));
+      else mod.SendMessage(obj, method);
+      return true;
+    } catch(e) { return false; }
+  }
+
+  function spawnPickup(type) {
+    var objs = ['PickupManager','PickupManagerController','InGame','Game','GameManager'];
+    for (var i = 0; i < objs.length; i++) {
+      if (sendMsg(objs[i], 'ForceSpawnPickupType', type)) return;
+    }
+  }
+
+  function fakeSwipe(dx, dy) {
+    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
+    if (!canvas) return;
+    var r = canvas.getBoundingClientRect();
+    var cx = r.left + r.width/2, cy = r.top + r.height*0.6;
+    function touch(x,y){ return new Touch({identifier:Date.now(),target:canvas,clientX:x,clientY:y,pageX:x,pageY:y,screenX:x,screenY:y,radiusX:10,radiusY:10,rotationAngle:0,force:1}); }
+    var t1=touch(cx,cy), t2=touch(cx+dx,cy+dy);
+    canvas.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t1],targetTouches:[t1],changedTouches:[t1]}));
+    setTimeout(function(){ canvas.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t2]})); }, 80);
+  }
+
+  function triggerGameEvent(event) {
+    switch(event) {
+      case 'jetpack':    spawnPickup('Jetpack');      spawnPickup('2'); break;
+      case 'magnet':     spawnPickup('CoinMagnet');   spawnPickup('1'); break;
+      case 'sneakers':   spawnPickup('SuperSneakers');spawnPickup('4'); break;
+      case 'hoverboard': spawnPickup('Hoverboard');   spawnPickup('0'); break;
+      case 'x2_score':   spawnPickup('Multiplier');   spawnPickup('3'); break;
+      case 'spawn_coins':
+        sendMsg('PickupManager','SpawnCoinRows','3') || sendMsg('InGame','SpawnCoins','20');
+        break;
+      case 'add_life':   spawnPickup('Hoverboard'); break;
+      case 'clear_track':
+        fakeSwipe(-150,0);
+        setTimeout(function(){fakeSwipe(150,0);},200);
+        setTimeout(function(){fakeSwipe(-150,0);},400);
+        break;
+    }
+  }
+
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.type !== 'sv_gift') return;
-    var evt = e.data.event;
-    var meta = EVT[evt];
+    var meta = EVT[e.data.event];
     if (meta) flash(meta.label, meta.color);
-    triggerGameEvent(evt);
+    triggerGameEvent(e.data.event);
   });
 
-  // Also expose directly
   window.svGift = function(event) {
     var meta = EVT[event];
     if (meta) flash(meta.label, meta.color);
     triggerGameEvent(event);
   };
-
-  // ── Map gift events to real Unity SendMessage calls ──────────────────────
-  // Discovered by decompiling SanFrancisco.data.unityweb:
-  //   PickupType enum: Jetpack, CoinMagnet, SuperSneakers, Hoverboard, Multiplier, ScoreBooster
-  //   Key methods: ForceSpawnPickupType, SetForceSpawnPickupTypeAndOriginalTo
-  //   FakeTouch system: UseFakeInput, ProcessFakeTouches, FakeTouches
-  //   GameObject: PickupManager, ingameTouchDetection
-
-  function sendMsg(obj, method, param) {
-    try {
-      var mod = window.Module || (window.unityInstance && window.unityInstance.Module);
-      if (mod && mod.SendMessage) {
-        if (param !== undefined) mod.SendMessage(obj, method, param);
-        else mod.SendMessage(obj, method);
-        return true;
-      }
-    } catch(e) {}
-    return false;
-  }
-
-  // Force-spawn a powerup by telling PickupManager to spawn it next
-  function spawnPickup(type) {
-    // Try multiple known object names - Unity scene object name may vary
-    var objects = ['PickupManager', 'PickupManagerController', 'GameManager', 'InGame'];
-    for (var i = 0; i < objects.length; i++) {
-      if (sendMsg(objects[i], 'ForceSpawnPickupType', type)) break;
-      sendMsg(objects[i], 'SetForceSpawnPickupTypeAndOriginalTo', type);
-    }
-  }
-
-  // Fake swipe using ingameTouchDetection
-  function fakeSwipe(dx, dy) {
-    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
-    if (!canvas) return;
-    var rect = canvas.getBoundingClientRect();
-    var cx = rect.left + rect.width / 2;
-    var cy = rect.top + rect.height * 0.6;
-    function makeTouch(x, y) {
-      return new Touch({ identifier: Date.now(), target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 10, radiusY: 10, rotationAngle: 0, force: 1 });
-    }
-    var t1 = makeTouch(cx, cy);
-    var t2 = makeTouch(cx + dx, cy + dy);
-    canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t1], targetTouches: [t1], changedTouches: [t1] }));
-    setTimeout(function() {
-      canvas.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t2] }));
-    }, 80);
-  }
-
-  function triggerGameEvent(event) {
-    switch(event) {
-      case 'jetpack':
-        // Spawn the Jetpack pickup on the track
-        spawnPickup('Jetpack');
-        spawnPickup('3'); // numeric fallback (Jetpack=2 or 3 in enum)
-        break;
-      case 'magnet':
-        spawnPickup('CoinMagnet');
-        spawnPickup('1');
-        break;
-      case 'sneakers':
-        spawnPickup('SuperSneakers');
-        spawnPickup('4');
-        break;
-      case 'hoverboard':
-        spawnPickup('Hoverboard');
-        spawnPickup('0');
-        // Also try activating directly
-        sendMsg('PickupManager', 'ActivatePickup', 'Hoverboard');
-        break;
-      case 'x2_score':
-        spawnPickup('Multiplier');
-        spawnPickup('2');
-        break;
-      case 'spawn_coins':
-        // SpawnCoinRow on PickupManager
-        sendMsg('PickupManager', 'SpawnCoinRows', '3');
-        sendMsg('PickupManager', 'SpawnCoins', '20');
-        sendMsg('InGame', 'SpawnCoins', '20');
-        break;
-      case 'add_life':
-        // No direct life add - do a hoverboard as shield equivalent
-        spawnPickup('Hoverboard');
-        break;
-      case 'clear_track':
-        // Rapid lane dodges via fakeSwipe
-        fakeSwipe(-150, 0);
-        setTimeout(function() { fakeSwipe(150, 0); }, 200);
-        setTimeout(function() { fakeSwipe(-150, 0); }, 400);
-        // Also try clearing obstacles via SendMessage
-        sendMsg('InGame', 'ClearObstacles', '');
-        sendMsg('GameManager', 'ClearObstacles', '');
-        break;
-    }
-  }
 })();
 </script>
 
