@@ -97,18 +97,42 @@
     try {
       if (!bridge) return;
       window._pokiBridge = bridge;
-      // Auto-bypass age gate: wrap setPlayerAge to call back with age 25
       var origAge = bridge.setPlayerAge;
       bridge.setPlayerAge = function(cb) {
         try { if (typeof cb === 'function') setTimeout(function(){ cb(25); }, 0); } catch(e){}
         try { if (origAge) origAge.call(bridge, cb); } catch(e){}
+        // Also auto-tap the OK button on the age gate UI
+        setTimeout(autoTapOK, 500);
+        setTimeout(autoTapOK, 1500);
+        setTimeout(autoTapOK, 3000);
       };
-      // Make interactive/breaks resolve immediately
       bridge.gameInteractive = resolved;
       bridge.commercialBreak = resolved;
       bridge.rewardedBreak = resolved;
-    } catch(e) { console.log('[SV] initPokiBridge error:', e); }
+    } catch(e) {}
   };
+
+  // Auto-tap the OK button on the age gate
+  // The OK button is at roughly center-x, 88% height of the canvas
+  function autoTapOK() {
+    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
+    if (!canvas) return;
+    var r = canvas.getBoundingClientRect();
+    var x = r.left + r.width * 0.5;
+    var y = r.top + r.height * 0.88;
+    var t = new Touch({ identifier: Date.now(), target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 5, radiusY: 5, rotationAngle: 0, force: 1 });
+    canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }));
+    setTimeout(function() {
+      canvas.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t] }));
+    }, 50);
+  }
+
+  // Also try auto-tapping periodically in case the age gate appears after initPokiBridge
+  var ageGateTimer = setInterval(function() {
+    autoTapOK();
+  }, 2000);
+  // Stop after 30s
+  setTimeout(function() { clearInterval(ageGateTimer); }, 30000);
 
   window.showUnitywebNoSupport = function() {};
 })();
