@@ -112,27 +112,54 @@
     } catch(e) {}
   };
 
-  // Auto-tap the OK button on the age gate
-  // The OK button is at roughly center-x, 88% height of the canvas
+  // Auto-dismiss age gate: scroll BOTH columns to valid adult date, then tap OK
   function autoTapOK() {
     var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
     if (!canvas) return;
     var r = canvas.getBoundingClientRect();
-    var x = r.left + r.width * 0.5;
-    var y = r.top + r.height * 0.88;
-    var t = new Touch({ identifier: Date.now(), target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 5, radiusY: 5, rotationAngle: 0, force: 1 });
-    canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }));
-    setTimeout(function() {
-      canvas.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t] }));
-    }, 50);
+    var cw = r.width, ch = r.height;
+
+    function touch(x, y) {
+      return new Touch({ identifier: Date.now() + Math.random()*100|0, target: canvas,
+        clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y,
+        radiusX: 5, radiusY: 5, rotationAngle: 0, force: 1 });
+    }
+    function tap(x, y, cb) {
+      var t = touch(x, y);
+      canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles:true, cancelable:true, touches:[t], targetTouches:[t], changedTouches:[t] }));
+      setTimeout(function() {
+        canvas.dispatchEvent(new TouchEvent('touchend', { bubbles:true, cancelable:true, touches:[], targetTouches:[], changedTouches:[t] }));
+        if (cb) setTimeout(cb, 80);
+      }, 80);
+    }
+
+    // Tap the UP arrow on a column (goes to earlier items = older years/months)
+    // Month up arrow ~33% x, Year up arrow ~50% x, both at ~32% y
+    var monthUpX = r.left + cw * 0.33;
+    var yearUpX  = r.left + cw * 0.50;
+    var arrowY   = r.top  + ch * 0.32;
+    var okX      = r.left + cw * 0.50;
+    var okY      = r.top  + ch * 0.88;
+
+    // Tap month up arrow 5 times, year up arrow 15 times, then OK
+    var steps = [];
+    for (var i = 0; i < 5;  i++) steps.push([monthUpX, arrowY]);
+    for (var j = 0; j < 15; j++) steps.push([yearUpX,  arrowY]);
+    steps.push([okX, okY]);
+    steps.push([okX, okY]); // double-tap OK
+
+    var idx = 0;
+    var iv = setInterval(function() {
+      if (idx >= steps.length) { clearInterval(iv); return; }
+      tap(steps[idx][0], steps[idx][1]);
+      idx++;
+    }, 180);
   }
 
-  // Also try auto-tapping periodically in case the age gate appears after initPokiBridge
-  var ageGateTimer = setInterval(function() {
-    autoTapOK();
-  }, 2000);
-  // Stop after 30s
-  setTimeout(function() { clearInterval(ageGateTimer); }, 30000);
+  // Run every 3s until age gate is dismissed (max 45s)
+  setTimeout(autoTapOK, 2000);
+  var ageGateTimer = setInterval(autoTapOK, 3000);
+  setTimeout(function() { clearInterval(ageGateTimer); }, 45000);
 
   window.showUnitywebNoSupport = function() {};
 })();
