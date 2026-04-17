@@ -2,88 +2,56 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Subway Runner — StreamVibe</title>
+<title>Subway Runner - StreamVibe</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html, body { width:100%; height:100%; overflow:hidden; background:#231F20; }
-  #sv-flash {
-    position:fixed; top:50px; left:50%; transform:translateX(-50%);
-    z-index:99999; pointer-events:none;
-    font-size:26px; font-weight:bold; font-family:Arial,sans-serif;
-    letter-spacing:2px; white-space:nowrap; opacity:0;
-    background:rgba(0,0,0,0.75); padding:10px 22px; border-radius:30px;
-    border:2px solid currentColor;
-  }
-  #sv-flash.show { animation:svFade 2.4s forwards; }
-  @keyframes svFade {
-    0%   { opacity:0; transform:translateX(-50%) translateY(10px) scale(0.9); }
-    12%  { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
-    75%  { opacity:1; }
-    100% { opacity:0; transform:translateX(-50%) translateY(-20px) scale(0.95); }
-  }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#231F20; }
+#sv-flash {
+  position:fixed; top:50px; left:50%; transform:translateX(-50%);
+  z-index:99999; pointer-events:none;
+  font-size:26px; font-weight:bold; font-family:Arial,sans-serif;
+  letter-spacing:2px; white-space:nowrap; opacity:0;
+  background:rgba(0,0,0,0.75); padding:10px 22px; border-radius:30px;
+  border:2px solid currentColor;
+}
+#sv-flash.show { animation:svFade 2.4s forwards; }
+@keyframes svFade {
+  0%   { opacity:0; transform:translateX(-50%) translateY(10px) scale(0.9); }
+  12%  { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
+  75%  { opacity:1; }
+  100% { opacity:0; transform:translateX(-50%) translateY(-20px) scale(0.95); }
+}
 </style>
 </head>
 <body>
 <div id="sv-flash"></div>
-
 <script>
-// ── Simple no-Proxy PokiSDK stub ─────────────────────────────────────────
-// No Object.defineProperty, no Proxy — those can crash inside WASM context.
-// Just set a plain object. poki-sdk-core will overwrite it later, so we
-// also patch AFTER it loads via a MutationObserver watching for its script.
 (function() {
   var noop = function() {};
   var resolved = function() { return Promise.resolve(); };
-
-  function makeSdk() {
-    return {
-      init: resolved,
-      gameInteractive: resolved,
-      commercialBreak: resolved,
-      rewardedBreak: resolved,
-      gameLoadingStart: noop,
-      gameLoadingFinished: noop,
-      gameplayStart: noop,
-      gameplayStop: noop,
-      roundStart: noop,
-      roundEnd: noop,
-      happyTime: noop,
-      customEvent: noop,
-      disableProgrammatic: noop,
-      muteAd: noop,
-      destroyAd: noop,
-      setDebug: noop,
-      logError: noop,
-      sendHighscore: noop,
-      gameLoadingProgress: noop,
-      toggleNonPersonalized: noop,
-      setConsentString: noop,
-      setPlayerAge: noop,
-      shareableURL: function(u) { return u || location.href; },
-      getLeaderboard: function() { return Promise.resolve({}); }
-    };
-  }
-
-  window.PokiSDK = makeSdk();
-
-  // When poki-sdk-core loads and overwrites window.PokiSDK, re-patch the
-  // three critical promise methods so the game doesn't hang gray.
-  // We watch for the script to finish loading.
-  var _origCreate = document.createElement.bind(document);
+  window.PokiSDK = {
+    init:resolved, gameInteractive:resolved, commercialBreak:resolved, rewardedBreak:resolved,
+    gameLoadingStart:noop, gameLoadingFinished:noop, gameplayStart:noop, gameplayStop:noop,
+    roundStart:noop, roundEnd:noop, happyTime:noop, customEvent:noop,
+    disableProgrammatic:noop, muteAd:noop, destroyAd:noop, setDebug:noop,
+    logError:noop, sendHighscore:noop, gameLoadingProgress:noop,
+    toggleNonPersonalized:noop, setConsentString:noop, setPlayerAge:noop,
+    shareableURL:function(u){return u||location.href;},
+    getLeaderboard:function(){return Promise.resolve({});}
+  };
+  var _orig = document.createElement.bind(document);
   document.createElement = function(tag) {
-    var el = _origCreate(tag);
-    if (tag.toLowerCase() === 'script') {
+    var el = _orig(tag);
+    if (tag.toLowerCase()==='script') {
       el.addEventListener('load', function() {
-        if (el.src && el.src.indexOf('poki-sdk-core') > -1) {
-          // Re-patch after core SDK overwrites PokiSDK
+        if (el.src && el.src.indexOf('poki-sdk-core')>-1) {
           setTimeout(function() {
             if (window.PokiSDK) {
-              window.PokiSDK.gameInteractive = resolved;
-              window.PokiSDK.commercialBreak = resolved;
-              window.PokiSDK.rewardedBreak = resolved;
-              window.PokiSDK.init = resolved;
+              window.PokiSDK.gameInteractive=resolved;
+              window.PokiSDK.commercialBreak=resolved;
+              window.PokiSDK.rewardedBreak=resolved;
+              window.PokiSDK.init=resolved;
             }
           }, 0);
         }
@@ -91,216 +59,74 @@
     }
     return el;
   };
-
-  // initPokiBridge — called by Unity WASM synchronously on startup
   window.initPokiBridge = function(bridge) {
     try {
       if (!bridge) return;
       window._pokiBridge = bridge;
-      var origAge = bridge.setPlayerAge;
-      bridge.setPlayerAge = function(cb) {
-        try { if (typeof cb === 'function') setTimeout(function(){ cb(25); }, 0); } catch(e){}
-        try { if (origAge) origAge.call(bridge, cb); } catch(e){}
-        // Also auto-tap the OK button on the age gate UI
-        setTimeout(autoTapOK, 500);
-        setTimeout(autoTapOK, 1500);
-        setTimeout(autoTapOK, 3000);
-      };
-      bridge.gameInteractive = resolved;
-      bridge.commercialBreak = resolved;
-      bridge.rewardedBreak = resolved;
+      bridge.gameInteractive=resolved; bridge.commercialBreak=resolved;
+      bridge.rewardedBreak=resolved; bridge.setPlayerAge=noop;
     } catch(e) {}
   };
-
-  // Auto-dismiss age gate: scroll to valid adult date (Jan 1990), then tap OK
-  // Runs ONCE 2s after load. Uses absolute canvas coords derived from getBoundingClientRect.
-  var ageGateDone = false;
-  function autoTapOK() {
-    if (ageGateDone) return;
-    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
-    if (!canvas) return;
-    var r = canvas.getBoundingClientRect();
-    // Arrow positions as fraction of canvas
-    // From screenshot: popup is centered, month col ~33%, year col ~51%
-    // Up arrows at ~32% height, down arrows at ~76% height, OK at ~88% height
-    var monthUpX  = r.left + r.width * 0.325;
-    var yearDownX = r.left + r.width * 0.510;  // DOWN = goes forward in time (newer)
-    var yearUpX   = r.left + r.width * 0.510;  // UP = goes back in time (older)
-    var upY       = r.top  + r.height * 0.325;
-    var downY     = r.top  + r.height * 0.755;
-    var okX       = r.left + r.width  * 0.510;
-    var okY       = r.top  + r.height * 0.895;
-
-    function tap(x, y, cb) {
-      var t = new Touch({ identifier: Date.now() + (Math.random()*100|0), target: canvas,
-        clientX:x, clientY:y, pageX:x, pageY:y, screenX:x, screenY:y,
-        radiusX:5, radiusY:5, rotationAngle:0, force:1 });
-      canvas.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t],targetTouches:[t],changedTouches:[t]}));
-      setTimeout(function(){
-        canvas.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t]}));
-        if (cb) setTimeout(cb, 100);
-      }, 80);
-    }
-
-    // Year is at 1900 (went too far back). Need to tap year DOWN 90 times to reach 1990.
-    // Month: tap month up arrow 6 times to get to June (or any valid month).
-    // Then tap OK.
-    var steps = [];
-    // Tap year DOWN 90x to go from 1900 → 1990
-    for (var i = 0; i < 90; i++) steps.push([yearDownX, downY]);
-    // Tap month UP 6x to change from Dec to June
-    for (var j = 0; j < 6;  j++) steps.push([monthUpX, upY]);
-    // Tap OK twice
-    steps.push([okX, okY]);
-    steps.push([okX, okY]);
-
-    var idx = 0;
-    var iv = setInterval(function() {
-      if (idx >= steps.length) { clearInterval(iv); ageGateDone = true; return; }
-      tap(steps[idx][0], steps[idx][1]);
-      idx++;
-    }, 80); // 80ms per tap = ~7s total for 90+6+2 taps
-  }
-
-  setTimeout(autoTapOK, 2500);
-
   window.showUnitywebNoSupport = function() {};
+  window.commercialBreak = function(cb){if(cb)cb();};
+  window.rewardedBreak = function(cb){if(cb)cb();};
 })();
-
 window.config = {
-  loader: 'unity',
-  debug: false,
-  maxRatio: 16/9, minRatio: 9/16,
-  title: 'Subway Surfers: San Francisco',
-  unityVersion: '2019.4.18f1',
-  unityWebglBuildUrl: 'Build/SanFrancisco/SanFrancisco.json',
-  fileSize: 35,
-  cachedDecompressedFileSizes: {
-    'SanFrancisco.asm.code.unityweb': 9077143,
-    'SanFrancisco.asm.framework.unityweb': 86369,
-    'SanFrancisco.asm.memory.unityweb': 951447,
-    'SanFrancisco.data.unityweb': 18323917,
-    'SanFrancisco.wasm.code.unityweb': 7279617,
-    'SanFrancisco.wasm.framework.unityweb': 90693,
+  loader:'unity', debug:false, maxRatio:16/9, minRatio:9/16,
+  title:'Subway Surfers: San Francisco', unityVersion:'2019.4.18f1',
+  unityWebglBuildUrl:'Build/SanFrancisco/SanFrancisco.json', fileSize:35,
+  cachedDecompressedFileSizes:{
+    'SanFrancisco.asm.code.unityweb':9077143,'SanFrancisco.asm.framework.unityweb':86369,
+    'SanFrancisco.asm.memory.unityweb':951447,'SanFrancisco.data.unityweb':18323917,
+    'SanFrancisco.wasm.code.unityweb':7279617,'SanFrancisco.wasm.framework.unityweb':90693,
   },
 };
 </script>
-
-<script type="text/javascript" src="4399.z.js"></script>
+<script src="4399.z.js"></script>
 <script src="master-loader.js"></script>
-
-<!-- Debug probe: runs inside iframe, reports via postMessage -->
-<script>
-(function() {
-  var attempts = 0;
-  var iv = setInterval(function() {
-    attempts++;
-    var mod = window.Module;
-    if (mod && mod.SendMessage) {
-      clearInterval(iv);
-      // Test each known GameObject name
-      var results = {};
-      ['PickupManager','PickupManagerController','InGame','Game','GameManager','ingameTouchDetection'].forEach(function(obj) {
-        try { mod.SendMessage(obj, 'TestPing', '1'); results[obj] = 'no_error'; }
-        catch(e) { results[obj] = String(e.message||e).substring(0,80); }
-      });
-      window.parent.postMessage({ type:'sv_debug', module:'found', attempts:attempts, tests:results }, '*');
-      console.log('[SV DEBUG FOUND]', JSON.stringify(results));
-    } else if (attempts >= 120) {
-      clearInterval(iv);
-      window.parent.postMessage({ type:'sv_debug', module:'not_found', attempts:attempts }, '*');
-      console.log('[SV DEBUG] Module never ready after 120s');
-    }
-  }, 1000);
-})();
-</script>
-
-<!-- StreamVibe gift bridge -->
 <script>
 (function() {
   var EVT = {
-    spawn_coins: { label:'🪙  COINS!',           color:'#ffd700' },
-    jetpack:     { label:'🚀  JETPACK!',          color:'#ff9f43' },
-    magnet:      { label:'🧲  COIN MAGNET!',      color:'#74b9ff' },
-    sneakers:    { label:'👟  SUPER SNEAKERS!',   color:'#55efc4' },
-    hoverboard:  { label:'🛹  HOVERBOARD!',       color:'#fd79a8' },
-    x2_score:    { label:'✕2  DOUBLE SCORE!',     color:'#a29bfe' },
-    add_life:    { label:'♥  +1 LIFE!',           color:'#fd79a8' },
-    clear_track: { label:'💥  TRACK CLEARED!',    color:'#fdcb6e' },
+    spawn_coins:{label:'Coins! ',color:'#ffd700'},
+    jetpack:{label:'JETPACK! ',color:'#ff9f43'},
+    magnet:{label:'Coin Magnet! ',color:'#74b9ff'},
+    sneakers:{label:'Super Sneakers! ',color:'#55efc4'},
+    hoverboard:{label:'Hoverboard! ',color:'#fd79a8'},
+    x2_score:{label:'x2 Score! ',color:'#a29bfe'},
+    add_life:{label:'+1 Life! ',color:'#fd79a8'},
+    clear_track:{label:'Track Cleared! ',color:'#fdcb6e'},
   };
-  var flashTimer = null;
-
-  function flash(label, color) {
-    var el = document.getElementById('sv-flash');
-    if (!el) return;
-    el.textContent = label; el.style.color = color;
-    el.style.borderColor = color; el.style.boxShadow = '0 0 30px ' + color + '88';
+  var PICKUP = {
+    jetpack:'Jetpack', magnet:'CoinMagnet', sneakers:'SuperSneakers',
+    hoverboard:'Hoverboard', x2_score:'Multiplier', add_life:'Hoverboard',
+  };
+  var flashTimer=null;
+  function flash(label,color) {
+    var el=document.getElementById('sv-flash');
+    if(!el)return;
+    el.textContent=label; el.style.color=color;
+    el.style.borderColor=color; el.style.boxShadow='0 0 30px '+color+'88';
     el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
-    if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(function(){ el.classList.remove('show'); }, 2400);
+    if(flashTimer)clearTimeout(flashTimer);
+    flashTimer=setTimeout(function(){el.classList.remove('show');},2400);
   }
-
-  function sendMsg(obj, method, param) {
-    try {
-      var mod = window.Module;
-      if (!mod || !mod.SendMessage) return false;
-      if (param !== undefined) mod.SendMessage(obj, method, String(param));
-      else mod.SendMessage(obj, method);
-      return true;
-    } catch(e) { return false; }
-  }
-
-  function spawnPickup(type) {
-    var objs = ['PickupManager','PickupManagerController','InGame','Game','GameManager'];
-    for (var i = 0; i < objs.length; i++) {
-      if (sendMsg(objs[i], 'ForceSpawnPickupType', type)) return;
-    }
-  }
-
-  function fakeSwipe(dx, dy) {
-    var canvas = document.querySelector('#game canvas') || document.querySelector('canvas');
-    if (!canvas) return;
-    var r = canvas.getBoundingClientRect();
-    var cx = r.left + r.width/2, cy = r.top + r.height*0.6;
-    function touch(x,y){ return new Touch({identifier:Date.now(),target:canvas,clientX:x,clientY:y,pageX:x,pageY:y,screenX:x,screenY:y,radiusX:10,radiusY:10,rotationAngle:0,force:1}); }
-    var t1=touch(cx,cy), t2=touch(cx+dx,cy+dy);
-    canvas.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t1],targetTouches:[t1],changedTouches:[t1]}));
-    setTimeout(function(){ canvas.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t2]})); }, 80);
-  }
-
   function triggerGameEvent(event) {
-    switch(event) {
-      case 'jetpack':    spawnPickup('Jetpack');      spawnPickup('2'); break;
-      case 'magnet':     spawnPickup('CoinMagnet');   spawnPickup('1'); break;
-      case 'sneakers':   spawnPickup('SuperSneakers');spawnPickup('4'); break;
-      case 'hoverboard': spawnPickup('Hoverboard');   spawnPickup('0'); break;
-      case 'x2_score':   spawnPickup('Multiplier');   spawnPickup('3'); break;
-      case 'spawn_coins':
-        sendMsg('PickupManager','SpawnCoinRows','3') || sendMsg('InGame','SpawnCoins','20');
-        break;
-      case 'add_life':   spawnPickup('Hoverboard'); break;
-      case 'clear_track':
-        fakeSwipe(-150,0);
-        setTimeout(function(){fakeSwipe(150,0);},200);
-        setTimeout(function(){fakeSwipe(-150,0);},400);
-        break;
-    }
+    if(event==='spawn_coins'){if(window.svCoins)window.svCoins(20);}
+    else if(PICKUP[event]){if(window.svPowerup)window.svPowerup(PICKUP[event]);}
+    window.parent.postMessage({type:'sv_triggered',event:event,svReady:!!window.svReady},'*');
   }
-
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'sv_gift') return;
-    var meta = EVT[e.data.event];
-    if (meta) flash(meta.label, meta.color);
+  window.addEventListener('message',function(e){
+    if(!e.data||e.data.type!=='sv_gift')return;
+    var meta=EVT[e.data.event];
+    if(meta)flash(meta.label,meta.color);
     triggerGameEvent(e.data.event);
   });
-
-  window.svGift = function(event) {
-    var meta = EVT[event];
-    if (meta) flash(meta.label, meta.color);
+  window.svGift=function(event){
+    var meta=EVT[event];
+    if(meta)flash(meta.label,meta.color);
     triggerGameEvent(event);
   };
 })();
 </script>
-
 </body>
 </html>
