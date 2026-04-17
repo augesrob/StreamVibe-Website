@@ -140,6 +140,63 @@ window.config = {
 <script type="text/javascript" src="4399.z.js"></script>
 <script src="master-loader.js"></script>
 
+<!-- DEBUG: probe Unity internals after load and report back via postMessage -->
+<script>
+(function() {
+  function probe() {
+    var mod = window.Module;
+    var result = {
+      type: 'sv_debug',
+      hasModule: !!mod,
+      hasSendMessage: !!(mod && mod.SendMessage),
+      moduleType: typeof mod,
+    };
+
+    if (mod && mod.SendMessage) {
+      // Try each known GameObject name — Unity logs "SendMessage: object not found" to console
+      // We wrap in try/catch to capture the error message
+      var testObjects = ['PickupManager','PickupManagerController','InGame','Game','ingameTouchDetection','GameManager'];
+      var errors = {};
+      testObjects.forEach(function(obj) {
+        try {
+          mod.SendMessage(obj, 'TestPing', '1');
+          errors[obj] = 'no error';
+        } catch(e) {
+          errors[obj] = e.message || String(e);
+        }
+      });
+      result.sendMessageTests = errors;
+
+      // Also try ForceSpawnPickupType on each
+      var spawnErrors = {};
+      testObjects.forEach(function(obj) {
+        try {
+          mod.SendMessage(obj, 'ForceSpawnPickupType', 'Jetpack');
+          spawnErrors[obj] = 'OK';
+        } catch(e) {
+          spawnErrors[obj] = e.message || String(e);
+        }
+      });
+      result.spawnTests = spawnErrors;
+    }
+
+    window.parent.postMessage(result, '*');
+    console.log('[SV DEBUG]', JSON.stringify(result));
+  }
+
+  // Wait for Unity to be ready, then probe
+  var attempts = 0;
+  var iv = setInterval(function() {
+    attempts++;
+    if ((window.Module && window.Module.SendMessage) || attempts > 60) {
+      clearInterval(iv);
+      if (window.Module && window.Module.SendMessage) probe();
+      else window.parent.postMessage({ type: 'sv_debug', error: 'Module never loaded after ' + attempts + 's' }, '*');
+    }
+  }, 1000);
+})();
+</script>
+
 <!-- StreamVibe TikTok gift bridge -->
 <script>
 (function() {
