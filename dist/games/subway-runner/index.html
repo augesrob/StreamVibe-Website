@@ -172,15 +172,80 @@ window.config = {
   // Listen for postMessage from the React dashboard
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.type !== 'sv_gift') return;
-    var meta = EVT[e.data.event];
+    var evt = e.data.event;
+    var meta = EVT[evt];
     if (meta) flash(meta.label, meta.color);
+    triggerGameEvent(evt);
   });
 
-  // Also expose directly so any parent page can call window.frames[0].svGift('jetpack')
+  // Also expose directly
   window.svGift = function(event) {
     var meta = EVT[event];
     if (meta) flash(meta.label, meta.color);
+    triggerGameEvent(event);
   };
+
+  // ── Trigger actual game input via touch simulation ──────────────────────
+  // Subway Surfers is a touch game. We simulate swipes on the canvas.
+  // Unity processes these as real player input.
+  function getCanvas() {
+    return document.querySelector('#game canvas') || document.querySelector('canvas');
+  }
+
+  function swipe(dx, dy) {
+    var canvas = getCanvas();
+    if (!canvas) return;
+    var rect = canvas.getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
+
+    function makeTouch(x, y, id) {
+      return new Touch({ identifier: id || 1, target: canvas, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y, radiusX: 10, radiusY: 10, rotationAngle: 0, force: 1 });
+    }
+
+    var t1 = makeTouch(cx, cy, 1);
+    var t2 = makeTouch(cx + dx, cy + dy, 1);
+
+    canvas.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t1], targetTouches: [t1], changedTouches: [t1] }));
+    setTimeout(function() {
+      canvas.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t2] }));
+    }, 80);
+  }
+
+  // Map gift events to swipe directions / repeated actions
+  var gameActions = {
+    // Swipe up = jump (jetpack — rapid repeated jumps to simulate flying)
+    jetpack: function() {
+      var count = 0;
+      var iv = setInterval(function() {
+        swipe(0, -150);
+        if (++count >= 8) clearInterval(iv);
+      }, 300);
+    },
+    // Swipe down = roll
+    hoverboard: function() { swipe(0, 150); },
+    // Swipe left/right rapid = lane dodge
+    clear_track: function() {
+      swipe(-120, 0);
+      setTimeout(function() { swipe(120, 0); }, 200);
+      setTimeout(function() { swipe(-120, 0); }, 400);
+    },
+    // Swipe up for sneakers (high jump)
+    sneakers: function() { swipe(0, -200); },
+    // Spawn coins / magnet / x2 / add_life — these are game-internal,
+    // can't trigger via input. Show flash only.
+    spawn_coins: function() {},
+    magnet:      function() {},
+    x2_score:    function() {},
+    add_life:    function() {},
+  };
+
+  function triggerGameEvent(event) {
+    var action = gameActions[event];
+    if (action) {
+      try { action(); } catch(e) {}
+    }
+  }
 })();
 </script>
 
